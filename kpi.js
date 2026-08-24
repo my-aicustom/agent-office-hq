@@ -494,13 +494,13 @@ let KPI_DATA = {
       title: 'Lead SEO & Tech Copywriter',
       avatar: '👩‍💼',
       color: '#00f0ff',
-      kpiScore: '98%',
-      kpiStatus: '107 ASTRO PAGES LIVE',
+      kpiScore: '—',
+      kpiStatus: 'SYNCING...',
       metrics: [
-        { label: 'Artikel E-E-A-T', value: '107 Halaman' },
-        { label: 'Coverage Bintaro/BSD', value: '15 Silo Hub' },
-        { label: 'Fakta Presisi', value: '±0.02mm, 12kW' },
-        { label: 'Validasi Skema', value: '100% Lolos AST' }
+        { label: 'Artikel Dipublish (Real)', value: 'Syncing...' },
+        { label: 'Rank #1 Saat Ini', value: 'Syncing...' },
+        { label: 'Halaman 1 (Top 10)', value: 'Syncing...' },
+        { label: 'Terakhir Publish', value: 'Syncing...' }
       ]
     },
     {
@@ -592,10 +592,65 @@ async function syncLiveSerpData() {
       }
     }
 
+    // 3. Sync Maya's real activity/rank status (replaces the old hardcoded card)
+    await syncMayaStatus(headers);
+
     renderKpiTables();
   } catch (err) {
     console.log('[KPI] Using local telemetry registry.');
     renderKpiTables();
+  }
+}
+
+async function syncMayaStatus(headers) {
+  try {
+    const res = await fetch('/api/agents/maya/status', { headers });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const published = data.totalRunsPublished || 0;
+    const hasRankData = Number.isFinite(data.totalTracked) && data.totalTracked > 0;
+
+    const staff = {
+      id: 'aero-writer',
+      name: 'Maya',
+      title: 'Lead SEO & Tech Copywriter',
+      avatar: '👩‍💼',
+      color: '#00f0ff',
+      kpiScore: hasRankData ? `${data.rankOneCount}/${data.totalTracked}` : (published ? `${published}` : '—'),
+      kpiStatus: published
+        ? `${published} ARTIKEL PUBLISHED (REAL)`
+        : 'BELUM PERNAH PUBLISH',
+      metrics: [
+        { label: 'Artikel Dipublish (Real)', value: String(published) },
+        { label: 'Rank #1 Saat Ini', value: hasRankData ? `${data.rankOneCount} / ${data.totalTracked} keyword` : 'Belum ada data' },
+        { label: 'Halaman 1 (Top 10)', value: hasRankData ? `${data.pageOneCount} / ${data.totalTracked} keyword` : 'Belum ada data' },
+        { label: 'Terakhir Publish', value: data.lastRun ? new Date(data.lastRun.timestamp).toLocaleString('id-ID') : 'Belum pernah' }
+      ]
+    };
+
+    const idx = KPI_DATA.staffPerformance.findIndex(s => s.id === 'aero-writer');
+    if (idx >= 0) KPI_DATA.staffPerformance[idx] = staff;
+    else KPI_DATA.staffPerformance.unshift(staff);
+
+    // Reflect the same real data on the pixel-office sprite (hover card +
+    // speech bubble) instead of the old hardcoded "107 halaman" flavor text.
+    if (typeof officeEngine !== 'undefined' && officeEngine) {
+      const mayaSprite = officeEngine.agents.find(a => a.id === 'aero-writer');
+      if (mayaSprite) {
+        mayaSprite.currentTask = data.lastRun
+          ? `Mengejar rank #1 untuk "${data.lastRun.keyword}"`
+          : 'Menunggu jadwal publish otomatis berikutnya';
+        mayaSprite.lastLog = data.lastRun
+          ? `✅ Published "${data.lastRun.title}" → ${data.lastRun.publishedUrl}`
+          : 'Belum ada artikel yang dipublish otomatis.';
+      }
+      if (data.lastRun && data.isRecentlyActive) {
+        officeEngine.showSpeech('aero-writer', `📈 Rank #1: ${data.rankOneCount}/${data.totalTracked} keyword`);
+      }
+    }
+  } catch (err) {
+    console.log('[KPI] Maya status sync failed, keeping last known values.');
   }
 }
 

@@ -214,8 +214,12 @@ function initEventLogs() {
 
   // Periodic simulated live pulse
   setInterval(() => {
+    const mayaSprite = officeEngine ? officeEngine.agents.find(a => a.id === 'aero-writer') : null;
+    const mayaPulseText = mayaSprite && mayaSprite.lastLog
+      ? `📡 Maya: ${mayaSprite.lastLog}`
+      : '📡 Maya: belum ada aktivitas publish tersinkron.';
     const pulses = [
-      { text: '📡 IndexNow Heartbeat: 107 URLs confirmed indexed by search engines.', type: 'info', agent: 'aero-writer' },
+      { text: mayaPulseText, type: 'info', agent: 'aero-writer' },
       { text: '📱 Hermes Sentry: WhatsApp beacon listener checked (0 error, DB intact)', type: 'info', agent: 'hermes-sentry' },
       { text: '🛡️ Iron-Shield: Verified 102 organic keywords blocked from ad cannibalization.', type: 'warning', agent: 'iron-shield' },
       { text: '⚡ GitHub Actions: Next cloud publish cycle armed for tomorrow 07:00 WIB.', type: 'info', agent: 'cloud-forge' }
