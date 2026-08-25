@@ -70,7 +70,7 @@ export const RELEVANCE_RULES = Object.freeze({
   coreServices: ['laser cutting', 'laser cut', 'cutting laser', 'potong plat', 'potong stainless', 'cnc router', 'cutting mdf'],
   serviceSignals: ['jasa', 'cutting', 'potong', 'custom', 'vendor', 'supplier'],
   materials: ['stainless', 'steel', 'ss', 'plat', 'besi', 'aluminium', 'akrilik', 'acrylic', 'mdf', 'kayu', 'acp', 'fasad', 'pagar', 'mihrab'],
-  locations: ['tangerang', 'tangsel', 'jakarta', 'bintaro', 'bsd', 'serpong', 'banten', 'jabodetabek', 'terdekat'],
+  locations: ['tangerang', 'tangsel', 'jakarta', 'jakbar', 'bintaro', 'bsd', 'serpong', 'gading serpong', 'kelapa gading', 'alam sutera', 'alam sutra', 'banten', 'jabodetabek', 'terdekat'],
   employment: ['lowongan', 'loker', 'gaji', 'operator'],
   machineCommerce: ['jual mesin', 'harga mesin', 'mesin bekas', 'second olx'],
   freeAsset: ['gratis', 'free', 'download', 'dxf'],

@@ -147,6 +147,71 @@ export const KEYWORD_TARGETS = [
       { rank: 2, name: 'JasaLaserCutting.com (KITA)', strength: 'Radius Banten-Cilegon & Fiber 12kW' }
     ],
     actionPlan: 'Gusur AnugerahMetal dengan penawaran gratis sample potongan uji presisi 0.02mm.'
+  },
+  {
+    id: 'kw-9',
+    domainKey: 'tepatlaser',
+    keyword: 'jasa laser cutting kota tangerang',
+    location: 'Kota Tangerang',
+    url: '/jasa-laser-cutting-tangerang/',
+    topCompetitor: 'anugerahmetal.com',
+    competitorsPage1: [
+      { rank: 1, name: 'PT Metal Anugerah (anugerahmetal.com)', strength: 'Authority manufaktur plat' },
+      { rank: 2, name: 'Sobat Laser (sobatlaser.com)', strength: 'Workshop Tangerang' }
+    ],
+    actionPlan: 'Deploy silo khusus Kawasan Industri & UMKM Kota Tangerang.'
+  },
+  {
+    id: 'kw-10',
+    domainKey: 'tepatlaser',
+    keyword: 'jasa laser cutting jakarta barat',
+    location: 'Jakarta Barat',
+    url: '/jasa-laser-cutting-jakarta-barat/',
+    topCompetitor: 'tritunggalmetal.com',
+    competitorsPage1: [
+      { rank: 1, name: 'Tritunggal Metal (tritunggalmetal.com)', strength: 'Spesialis metal Jakbar' },
+      { rank: 2, name: 'Dania Da (daniada.com)', strength: 'Fasad & Partisi' }
+    ],
+    actionPlan: 'Target arsitek & kontraktor residensial Puri Indah & Kebon Jeruk.'
+  },
+  {
+    id: 'kw-11',
+    domainKey: 'tepatlaser',
+    keyword: 'laser cutting gading serpong',
+    location: 'Gading Serpong',
+    url: '/jasa-laser-cutting-gading-serpong/',
+    topCompetitor: 'lytro.id',
+    competitorsPage1: [
+      { rank: 1, name: 'Lytro Laser (lytro.id)', strength: 'Otoritas lokal Gading Serpong' },
+      { rank: 2, name: 'Barz Laser (barz-laser.com)', strength: 'Showroom interior Serpong' }
+    ],
+    actionPlan: 'Optimasi landing page komersial ruko & cluster hunian Paramount/Summarecon.'
+  },
+  {
+    id: 'kw-12',
+    domainKey: 'tepatlaser',
+    keyword: 'jasa laser cutting kelapa gading',
+    location: 'Kelapa Gading',
+    url: '/jasa-laser-cutting-kelapa-gading/',
+    topCompetitor: 'easyprint.id',
+    competitorsPage1: [
+      { rank: 1, name: 'EasyPrint (easyprint.id)', strength: 'Retail signage Jakut' },
+      { rank: 2, name: 'Laser Cutting Jakarta (lasercuttingjakarta.com)', strength: 'Pagar & ornamen metal' }
+    ],
+    actionPlan: 'Target perumahan mewah & bisnis retail Kelapa Gading Jakarta Utara.'
+  },
+  {
+    id: 'kw-13',
+    domainKey: 'tepatlaser',
+    keyword: 'laser cutting alam sutera',
+    location: 'Alam Sutera',
+    url: '/jasa-laser-cutting-alam-sutera/',
+    topCompetitor: 'sobatlaser.com',
+    competitorsPage1: [
+      { rank: 1, name: 'Sobat Laser (sobatlaser.com)', strength: 'Free delivery Tangerang' },
+      { rank: 2, name: 'Lytro Laser (lytro.id)', strength: 'Partisi modern Alam Sutera' }
+    ],
+    actionPlan: 'Fokus pada proyek pagar laser cutting & interior ruko Jalur Sutera.'
   }
 ];
 
