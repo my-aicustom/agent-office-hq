@@ -28,18 +28,30 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare Deployment Payload
+        id: prep
+        run: |
+          node -e "
+            const gsc = process.env.GSC_RAW || '';
+            const b64 = Buffer.from(gsc).toString('base64');
+            const fs = require('fs');
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'gsc_b64=' + b64 + '\n');
+          "
+        env:
+          GSC_RAW: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
           HQ_PASS: ${{ secrets.HQ_PASSWORD }}
           HQ_SECRET: ${{ secrets.HQ_AUTH_SECRET }}
-          GSC_SA_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+          GSC_B64: ${{ steps.prep.outputs.gsc_b64 }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
-          envs: HQ_PASS,HQ_SECRET,GSC_SA_JSON
+          envs: HQ_PASS,HQ_SECRET,GSC_B64
           script: |
             echo "🚀 [CI/CD] Starting Deployment to /opt/agent-office-hq..."
             
@@ -73,9 +85,11 @@ TRUST_PROXY=true
 PORT=3333
 ENVEOF
 
-            # Write GSC credentials safely
-            mkdir -p /opt/agent-office-hq/data
-            echo "$GSC_SA_JSON" > /opt/agent-office-hq/data/gsc-credentials.json
+            # Write GSC credentials safely if present
+            if [ -n "$GSC_B64" ]; then
+              mkdir -p /opt/agent-office-hq/data
+              echo "$GSC_B64" | base64 -d > /opt/agent-office-hq/data/gsc-credentials.json
+            fi
 
             # Run Docker container safely using --env-file
             docker run -d --name agent-office-hq --restart always --network coolify \
