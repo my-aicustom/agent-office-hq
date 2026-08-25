@@ -54,21 +54,30 @@ jobs:
               rm -rf /tmp/agent-hq-clone
             fi
 
-            # Recreate Docker container (always, not just on first run) so env
-            # vars below stay in sync with secrets instead of silently drifting
-            # back to source defaults if the container is ever lost.
-            echo "🔄 [CI/CD] Recreating Docker container agent-office-hq..."
+            # Recreate Docker container
+            echo "🔄 [CI/CD] Preparing configuration and container..."
             docker stop agent-office-hq 2>/dev/null || true
             docker rm agent-office-hq 2>/dev/null || true
-            # No host port is published. Traefik on the Coolify network is the
-            # trusted proxy responsible for sanitizing forwarded IP headers.
+
+            # Write .env safely
+            cat << 'ENVEOF' > /opt/agent-office-hq/.env
+HQ_PASSWORD=${{ secrets.HQ_PASSWORD }}
+HQ_AUTH_SECRET=${{ secrets.HQ_AUTH_SECRET }}
+NODE_ENV=production
+TRUST_PROXY=true
+PORT=3333
+ENVEOF
+
+            # Write GSC service account credentials file
+            mkdir -p /opt/agent-office-hq/data
+            cat << 'JSONEOF' > /opt/agent-office-hq/data/gsc-credentials.json
+${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
+JSONEOF
+
+            # Run Docker container safely using --env-file
             docker run -d --name agent-office-hq --restart always --network coolify \
+              --env-file /opt/agent-office-hq/.env \
               -v /opt/agent-office-hq:/app -w /app \
-              -e HQ_PASSWORD="${{ secrets.HQ_PASSWORD }}" \
-              -e HQ_AUTH_SECRET="${{ secrets.HQ_AUTH_SECRET }}" \
-              -e NODE_ENV=production \
-              -e TRUST_PROXY=true \
-              -e GSC_SERVICE_ACCOUNT_JSON="${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}" \
               node:20-alpine node server.mjs
 
             echo "✅ [CI/CD] Deployment completed successfully! Live on https://seo.tepatlaser.com"

@@ -9,6 +9,12 @@
 // step-by-step instructions.
 
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const SEARCH_ANALYTICS_ENDPOINT = 'https://www.googleapis.com/webmasters/v3/sites';
@@ -17,16 +23,34 @@ let cachedToken = null; // { accessToken, expiresAt }
 
 function loadServiceAccount() {
   const raw = process.env.GSC_SERVICE_ACCOUNT_JSON;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (e) {
-    throw new Error(`GSC_SERVICE_ACCOUNT_JSON is not valid JSON: ${e.message}`);
+  if (raw && raw.trim()) {
+    try {
+      if (raw.trim().startsWith('{')) return JSON.parse(raw);
+      const decoded = Buffer.from(raw, 'base64').toString('utf8');
+      if (decoded.trim().startsWith('{')) return JSON.parse(decoded);
+    } catch {}
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      throw new Error(`GSC_SERVICE_ACCOUNT_JSON is not valid JSON: ${e.message}`);
+    }
   }
+
+  const filePath = process.env.GSC_SERVICE_ACCOUNT_FILE || path.join(__dirname, 'data', 'gsc-credentials.json');
+  if (fs.existsSync(filePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (e) {
+      throw new Error(`GSC credentials file at ${filePath} is invalid JSON: ${e.message}`);
+    }
+  }
+
+  return null;
 }
 
 export function isConfigured() {
-  return !!process.env.GSC_SERVICE_ACCOUNT_JSON;
+  const filePath = process.env.GSC_SERVICE_ACCOUNT_FILE || path.join(__dirname, 'data', 'gsc-credentials.json');
+  return !!(process.env.GSC_SERVICE_ACCOUNT_JSON && process.env.GSC_SERVICE_ACCOUNT_JSON.trim()) || fs.existsSync(filePath);
 }
 
 async function getAccessToken() {

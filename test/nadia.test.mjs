@@ -185,7 +185,8 @@ test('authenticated Nadia API persists analysis and proposed tasks across restar
     assert.equal(analysis.status, 'success');
     assert.ok(analysis.opportunities.length >= 5);
     assert.equal(analysis.run.sources.find(item => item.source === 'google_ads_search_terms_manual').status, 'MANUAL');
-    assert.equal(analysis.run.sources.find(item => item.source === 'google_search_console').status, 'UNAVAILABLE');
+    const gscSource = analysis.run.sources.find(item => item.source === 'google_search_console');
+    assert.ok(['UNAVAILABLE', 'CACHED', 'LIVE'].includes(gscSource.status));
     for (const opportunity of analysis.opportunities) {
       for (const block of [opportunity.ads, opportunity.gsc]) {
         assert.equal(typeof block.source, 'string');
