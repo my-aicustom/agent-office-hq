@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { SEARCH_TERMS_VAULT_DATA, getAuditSummary, getKeywordsData, refreshSerpData, isGscConfigured } from './serp_auditor.mjs';
 import { processAgentChat, AGENT_KNOWLEDGE } from './agent_brain.mjs';
 import { nadiaAgent } from './agents/nadia/agent.mjs';
+import { mayaAgent } from './agents/maya/agent.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -250,6 +251,12 @@ function sendNadiaApiError(res, operation, error) {
   res.end(JSON.stringify({ status: 'error', message: `NADIA ${operation.toUpperCase()} FAILED` }));
 }
 
+function sendMayaApiError(res, operation, error) {
+  console.error(`[MAYA] ${operation} failed: ${error.message}`);
+  res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ status: 'error', message: `MAYA ${operation.toUpperCase()} FAILED` }));
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
   let reqPath = parsedUrl.pathname;
@@ -360,6 +367,28 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (reqPath === '/api/agents/maya/status' && req.method === 'GET') {
+      try {
+        const status = await mayaAgent.getStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...status }, null, 2));
+      } catch (error) {
+        sendMayaApiError(res, 'status', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/nadia/google-ads/status' && req.method === 'GET') {
+      try {
+        const provider = await nadiaAgent.getGoogleAdsStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', provider }, null, 2));
+      } catch (error) {
+        sendNadiaApiError(res, 'Google Ads provider status', error);
+      }
+      return;
+    }
+
     if (reqPath === '/api/agents/nadia/opportunities' && req.method === 'GET') {
       try {
         const opportunities = await nadiaAgent.getOpportunities({
@@ -448,7 +477,9 @@ const server = http.createServer(async (req, res) => {
 
       const chatResult = agentId === 'radar-x'
         ? await nadiaAgent.answer(message)
-        : processAgentChat(agentId, message, history);
+        : agentId === 'aero-writer'
+          ? await mayaAgent.answer(message)
+          : processAgentChat(agentId, message, history);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(chatResult, null, 2));
       return;
@@ -548,3 +579,21 @@ if (isGscConfigured()) {
 } else {
   console.warn('⚠️ [SERP] GSC_SERVICE_ACCOUNT_JSON not set — SERP dashboard will show "no data" until configured. See README.md "Setup Google Search Console".');
 }
+
+// Maya activity sync — pulls her real publish/rank log from the tepatlaser
+// repo (public raw file, no auth needed) so the dashboard reflects real work
+// instead of the old hardcoded KPI card. See agents/maya/sync.mjs.
+const MAYA_SYNC_INTERVAL_HOURS = Number(process.env.MAYA_SYNC_INTERVAL_HOURS) || 6;
+
+async function runMayaSync() {
+  try {
+    const { errors } = await mayaAgent.sync();
+    if (errors.length) console.warn(`⚠️ [MAYA] sync completed with warnings: ${errors.join('; ')}`);
+    else console.log(`✅ [MAYA] activity sync done at ${new Date().toISOString()}`);
+  } catch (e) {
+    console.error(`❌ [MAYA] activity sync failed: ${e.message}`);
+  }
+}
+
+runMayaSync();
+setInterval(runMayaSync, MAYA_SYNC_INTERVAL_HOURS * 60 * 60 * 1000);

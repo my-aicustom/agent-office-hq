@@ -1,42 +1,12 @@
 // Agent Swarm Brain & Interrogation Reasoning Engine
 // Provides ground-truth contextual intelligence, factual knowledge, and live debate capability for Bos
 
+// Maya (aero-writer) is no longer answered from here — she has a real,
+// data-grounded brain now at agents/maya/agent.mjs (real Claude call +
+// synced activity/rank data from the tepatlaser repo, not hardcoded text).
+// server.mjs routes agentId 'aero-writer' to mayaAgent.answer() before it
+// would ever reach processAgentChat() below.
 export const AGENT_KNOWLEDGE = {
-  'aero-writer': {
-    id: 'aero-writer',
-    name: 'Maya',
-    title: 'Lead SEO & Tech Copywriter',
-    avatar: '👩‍💼',
-    color: '#00f0ff',
-    personality: 'Spesialis SEO teknis dan E-E-A-T. Berbicara percaya diri, terstruktur, berbasis data keyword, dan paham seluk-beluk spesifikasi laser fiber.',
-    quickPrompts: [
-      'Kenapa lu nulis artikel Bintaro & BSD dulu?',
-      'Dasar toleransi ±0.02mm itu dari mana?',
-      'Gimana cara ngalahin Raja Laser & Kingsign di Bintaro?'
-    ],
-    generateAnswer: (msg) => {
-      const lower = msg.toLowerCase();
-      if (lower.includes('bintaro') || lower.includes('bsd') || lower.includes('kenapa') || lower.includes('wilayah')) {
-        return `Izin lapor Bos! Alasan gua memprioritaskan cluster **Bintaro Sektor 1-9 & BSD** karena 2 alasan matematis:
-1. **Search Intent & Daya Beli**: Bintaro dan BSD punya densitas proyek residensial mewah (pagar custom, fasad, railing) tertinggi di Tangsel dengan average order value > Rp 15 Juta.
-2. **Radius Workshop**: Jarak ke Bintaro cuma 15 menit, jadi klaim "Layanan Pengiriman Express & Survey Cepat" di artikel E-E-A-T terverifikasi 100% fakta, bukan halusinasi.
-Saat ini ada 15 artikel silo terhubung internal link yang lagi di-crawl Googlebot untuk cluster ini.`;
-      }
-      if (lower.includes('toleransi') || lower.includes('0.02') || lower.includes('spek') || lower.includes('mesin') || lower.includes('fakta')) {
-        return `Data toleransi **±0.02mm** dan kapasitas **Fiber Laser 12kW** itu bukan klaim halusinasi, Bos!
-Itu spesifikasi mekanik mesin cutting kita dengan gas assist **Nitrogen Purity 99.9%** untuk plat stainless steel & mild steel hingga ketebalan 25mm.
-Gua wajib inject angka presisi ini ke schema \`TechArticle\` karena Google Algorithm dan ChatGPT SearchBot memprioritaskan konten dengan densitas fakta teknis (*Information Gain Score*) dibanding artikel generik kompetitor.`;
-      }
-      if (lower.includes('ngalahin') || lower.includes('raja laser') || lower.includes('kingsign') || lower.includes('kompetitor')) {
-        return `Strategi gua buat menggusur **Raja Laser (#1)** dan **Kingsign (#2)** di Bintaro:
-1. **Topical Authority Silo**: Kompetitor cuma punya 1-2 landing page umum. Kita deploy **107 halaman terstruktur per sektor** (Bintaro Sektor 1 sampai Sektor 9 + Bintaro Jaya).
-2. **Interactive Element**: Di setiap halaman ada kalkulator estimasi ketebalan plat dan link instan WhatsApp ke Budi.
-3. **GEO Priming**: Format \`llms.txt\` kita bikin ChatGPT & Gemini langsung mereferensikan TepatLaser saat user nanya vendor laser cutting terdekat di Tangsel.`;
-      }
-      return `Siap Bos! Terkait "${msg}", saat ini gua maintain **107 Halaman SEO** di TepatLaser.com, plus konten katalog RajaCutting dan Silo Industri JasaLaser. Gua pastikan setiap artikel lolos validasi schema AST sebelum Gilang deploy ke Hostinger. Ada keyword spesifik yang mau kita genjot berikutnya, Bos?`;
-    }
-  },
-
   'radar-x': {
     id: 'radar-x',
     name: 'Nadia',

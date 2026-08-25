@@ -12,11 +12,11 @@ const SWARM_AGENTS = [
     chairPos: { x: 180, y: 260 },
     pantryPos: { x: 800, y: 150 },
     whiteboardPos: { x: 480, y: 140 },
-    engine: 'Claude 3.5 Sonnet + Astro Markdown AST',
-    currentTask: 'Menulis artikel E-E-A-T harian & riset keyword Bintaro/BSD',
-    target: '15 Regional Hubs (Bintaro, BSD, Jaksel)',
+    engine: 'Claude (real) + Google Search Console rank data',
+    currentTask: 'Syncing status...',
+    target: 'Rank #1 untuk semua tracked keyword (lihat data real via sync)',
     state: 'WORKING', // WORKING, WALKING, COFFEE, WHITEBOARD
-    lastLog: '✅ Published "Tips Memilih Material Secondary Skin Fasad ACP" to /blog/ (Commit 6151720)',
+    lastLog: 'Syncing status dari tepatlaser.com...',
     actionLabel: 'GENERATE NEW BLOG NOW',
     appearance: {
       hairStyle: 'bob',
