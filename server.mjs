@@ -8,6 +8,10 @@ import { SEARCH_TERMS_VAULT_DATA, getAuditSummary, getKeywordsData, refreshSerpD
 import { processAgentChat, AGENT_KNOWLEDGE } from './agent_brain.mjs';
 import { nadiaAgent } from './agents/nadia/agent.mjs';
 import { mayaAgent } from './agents/maya/agent.mjs';
+import { budiAgent } from './agents/budi/agent.mjs';
+import { rianAgent } from './agents/rian/agent.mjs';
+import { gilangAgent } from './agents/gilang/agent.mjs';
+import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -257,6 +261,24 @@ function sendMayaApiError(res, operation, error) {
   res.end(JSON.stringify({ status: 'error', message: `MAYA ${operation.toUpperCase()} FAILED` }));
 }
 
+function sendBudiApiError(res, operation, error) {
+  console.error(`[BUDI] ${operation} failed: ${error.message}`);
+  res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ status: 'error', message: `BUDI ${operation.toUpperCase()} FAILED` }));
+}
+
+function sendRianApiError(res, operation, error) {
+  console.error(`[RIAN] ${operation} failed: ${error.message}`);
+  res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ status: 'error', message: `RIAN ${operation.toUpperCase()} FAILED` }));
+}
+
+function sendGilangApiError(res, operation, error) {
+  console.error(`[GILANG] ${operation} failed: ${error.message}`);
+  res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ status: 'error', message: `GILANG ${operation.toUpperCase()} FAILED` }));
+}
+
 const server = http.createServer(async (req, res) => {
   const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
   let reqPath = parsedUrl.pathname;
@@ -456,6 +478,170 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // BUDI — Customer Success & Lead Ops Agent
+    if (reqPath === '/api/agents/budi/status' && req.method === 'GET') {
+      try {
+        const status = await budiAgent.getStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...status }, null, 2));
+      } catch (error) {
+        sendBudiApiError(res, 'status', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/budi/leads' && req.method === 'GET') {
+      try {
+        const leads = await budiAgent.getLeads({
+          status: parsedUrl.searchParams.get('status') || undefined,
+          source: parsedUrl.searchParams.get('source') || undefined,
+          limit: parsedUrl.searchParams.get('limit') || undefined
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', count: leads.length, leads }, null, 2));
+      } catch (error) {
+        sendBudiApiError(res, 'leads', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/budi/webhook' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+      try {
+        const result = await budiAgent.syncWhatsAppWebhook(body);
+        res.writeHead(result.inserted || result.duplicate ? 200 : 500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...result }, null, 2));
+      } catch (error) {
+        if (error.code === 'VALIDATION_ERROR') {
+          res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ status: 'error', message: error.message }));
+        } else {
+          sendBudiApiError(res, 'webhook', error);
+        }
+      }
+      return;
+    }
+
+    // RIAN — Negative Keyword & Search Terms Waste Auditor
+    if (reqPath === '/api/agents/rian/status' && req.method === 'GET') {
+      try {
+        const status = rianAgent.getStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...status }, null, 2));
+      } catch (error) {
+        sendRianApiError(res, 'status', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/rian/audit' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+      if (body.searchTerms != null && !Array.isArray(body.searchTerms)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: 'searchTerms must be an array when supplied.' }));
+        return;
+      }
+      try {
+        const audit = rianAgent.auditSearchTerms({ searchTerms: body.searchTerms });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...audit }, null, 2));
+      } catch (error) {
+        sendRianApiError(res, 'audit', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/rian/negatives' && req.method === 'GET') {
+      try {
+        const format = parsedUrl.searchParams.get('format') || 'json';
+        const exported = rianAgent.exportNegatives({ format });
+        if (format === 'csv') {
+          res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8' });
+          res.end(exported);
+        } else if (format === 'text') {
+          res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end(exported);
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(exported);
+        }
+      } catch (error) {
+        sendRianApiError(res, 'negatives', error);
+      }
+      return;
+    }
+
+    // GILANG — DevOps & Server Deployer
+    if (reqPath === '/api/agents/gilang/status' && req.method === 'GET') {
+      try {
+        const status = await gilangAgent.getStatus();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...status }, null, 2));
+      } catch (error) {
+        sendGilangApiError(res, 'status', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/gilang/deploy' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+      const environment = typeof body.environment === 'string' ? body.environment.trim().toUpperCase() : '';
+      if (!Object.values(TARGET_ENVIRONMENTS).includes(environment)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: `environment must be one of: ${Object.values(TARGET_ENVIRONMENTS).join(', ')}` }));
+        return;
+      }
+      try {
+        const deployment = gilangAgent.triggerBuild(environment);
+        res.writeHead(deployment.status === 'FAILED' ? 502 : 200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', deployment }, null, 2));
+      } catch (error) {
+        sendGilangApiError(res, 'deploy', error);
+      }
+      return;
+    }
+
+    if (reqPath === '/api/agents/gilang/purge' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+      if (body.urls != null && !Array.isArray(body.urls)) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: 'urls must be an array when supplied.' }));
+        return;
+      }
+      try {
+        const result = await gilangAgent.purgeCache(body.urls || []);
+        res.writeHead(result.purged ? 200 : 502, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...result }, null, 2));
+      } catch (error) {
+        sendGilangApiError(res, 'purge', error);
+      }
+      return;
+    }
+
     // Interactive Agent Chat & Interrogation API
     if (reqPath === '/api/agent/chat' && req.method === 'POST') {
       let body;
@@ -475,11 +661,16 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const chatResult = agentId === 'radar-x'
-        ? await nadiaAgent.answer(message)
-        : agentId === 'aero-writer'
-          ? await mayaAgent.answer(message)
-          : processAgentChat(agentId, message, history);
+      const REAL_AGENT_ANSWERERS = {
+        'radar-x': () => nadiaAgent.answer(message),
+        'aero-writer': () => mayaAgent.answer(message),
+        'iron-shield': () => rianAgent.answer(message),
+        'hermes-sentry': () => budiAgent.answer(message),
+        'cloud-forge': () => gilangAgent.answer(message)
+      };
+      const chatResult = REAL_AGENT_ANSWERERS[agentId]
+        ? await REAL_AGENT_ANSWERERS[agentId]()
+        : processAgentChat(agentId, message, history);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(chatResult, null, 2));
       return;
