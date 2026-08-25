@@ -30,11 +30,16 @@ jobs:
 
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          HQ_PASS: ${{ secrets.HQ_PASSWORD }}
+          HQ_SECRET: ${{ secrets.HQ_AUTH_SECRET }}
+          GSC_SA_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
           port: 22
+          envs: HQ_PASS,HQ_SECRET,GSC_SA_JSON
           script: |
             echo "🚀 [CI/CD] Starting Deployment to /opt/agent-office-hq..."
             
@@ -60,19 +65,17 @@ jobs:
             docker rm agent-office-hq 2>/dev/null || true
 
             # Write .env safely
-            cat << 'ENVEOF' > /opt/agent-office-hq/.env
-HQ_PASSWORD=${{ secrets.HQ_PASSWORD }}
-HQ_AUTH_SECRET=${{ secrets.HQ_AUTH_SECRET }}
+            cat << ENVEOF > /opt/agent-office-hq/.env
+HQ_PASSWORD=$HQ_PASS
+HQ_AUTH_SECRET=$HQ_SECRET
 NODE_ENV=production
 TRUST_PROXY=true
 PORT=3333
 ENVEOF
 
-            # Write GSC service account credentials file
+            # Write GSC credentials safely
             mkdir -p /opt/agent-office-hq/data
-            cat << 'JSONEOF' > /opt/agent-office-hq/data/gsc-credentials.json
-${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
-JSONEOF
+            echo "$GSC_SA_JSON" > /opt/agent-office-hq/data/gsc-credentials.json
 
             # Run Docker container safely using --env-file
             docker run -d --name agent-office-hq --restart always --network coolify \
