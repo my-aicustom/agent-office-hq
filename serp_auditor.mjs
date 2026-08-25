@@ -23,9 +23,9 @@ const CACHE_PATH = path.join(CACHE_DIR, 'serp-cache.json');
 // is verified in Search Console: a URL-prefix like "https://example.com/" or
 // a domain property like "sc-domain:example.com"). Overridable via env var.
 const SITE_MAP = {
-  tepatlaser: process.env.GSC_SITE_TEPATLASER || 'https://tepatlaser.com/',
-  rajacutting: process.env.GSC_SITE_RAJACUTTING || 'https://rajacuttinglaser.com/',
-  jasalasercutting: process.env.GSC_SITE_JASALASERCUTTING || 'https://jasalasercutting.com/'
+  tepatlaser: process.env.GSC_SITE_TEPATLASER || 'sc-domain:tepatlaser.com',
+  rajacutting: process.env.GSC_SITE_RAJACUTTING || 'sc-domain:rajacuttinglaser.com',
+  jasalasercutting: process.env.GSC_SITE_JASALASERCUTTING || 'sc-domain:jasalasercutting.com'
 };
 
 const DOMAIN_NAMES = {
