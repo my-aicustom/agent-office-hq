@@ -1,6 +1,6 @@
 import { MayaPersistence } from './persistence.mjs';
 import { fetchMayaSource } from './sync.mjs';
-import { ClaudeProvider } from '../../tools/llm.mjs';
+import { createDefaultLlmProvider } from '../../tools/llm.mjs';
 
 const MAYA_IDENTITY = { id: 'aero-writer', name: 'Maya', avatar: '👩‍💼', color: '#00f0ff' };
 const RECENTLY_ACTIVE_MS = 26 * 60 * 60 * 1000; // daily cron + slack
@@ -10,7 +10,7 @@ const SYSTEM_PROMPT_PREFIX = `Kamu adalah Maya, Lead SEO & Tech Copywriter untuk
 ATURAN PENTING: Jawab HANYA berdasarkan data aktivitas nyata di bawah ini. Jika datanya kosong/belum ada, katakan terus terang bahwa kamu belum pernah publish artikel — JANGAN mengarang angka seperti "107 halaman" atau klaim lain yang tidak ada di data. Gaya bicara: percaya diri, terstruktur, panggil user "Bos".`;
 
 class MayaAgent {
-  constructor({ persistence = new MayaPersistence(), llmProvider = new ClaudeProvider() } = {}) {
+  constructor({ persistence = new MayaPersistence(), llmProvider = createDefaultLlmProvider() } = {}) {
     this.persistence = persistence;
     this.llmProvider = llmProvider;
   }

@@ -89,3 +89,68 @@ export class ClaudeProvider extends LLMProvider {
   }
 }
 
+export class GeminiProvider extends LLMProvider {
+  constructor({ model = process.env.MAYA_GEMINI_MODEL || 'gemini-3.6-flash', maxTokens = 1024 } = {}) {
+    super('gemini');
+    this.model = model;
+    this.maxTokens = maxTokens;
+  }
+
+  isConfigured() {
+    return !!(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY);
+  }
+
+  async explain() {
+    if (!this.isConfigured()) {
+      return {
+        source: `llm:${this.name}`,
+        status: DATA_STATUSES.UNAVAILABLE,
+        fetchedAt: new Date().toISOString(),
+        text: null,
+        error: 'GEMINI_API_KEY is not configured.'
+      };
+    }
+    return {
+      source: `llm:${this.name}`,
+      status: DATA_STATUSES.LIVE,
+      fetchedAt: new Date().toISOString(),
+      text: `Gemini (${this.model}) configured and ready.`,
+      error: null
+    };
+  }
+
+  async generate(system, user) {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: [{ parts: [{ text: user }] }],
+        generationConfig: {
+          maxOutputTokens: this.maxTokens,
+        }
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(`Gemini API error: ${data.error?.message || res.status}`);
+    }
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  }
+}
+
+export function createDefaultLlmProvider() {
+  if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+    return new GeminiProvider();
+  }
+  if (process.env.ANTHROPIC_API_KEY) {
+    return new ClaudeProvider();
+  }
+  return new GeminiProvider();
+}
+
