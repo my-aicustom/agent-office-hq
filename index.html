@@ -58,6 +58,9 @@
         <button id="tab-kpi" class="tab-btn" onclick="switchView('kpi')">
           <span>📊</span> EXECUTIVE KPI & GEO ROOM
         </button>
+        <button id="tab-warroom" class="tab-btn tab-warroom-highlight" onclick="switchView('warroom')">
+          <span>🚨</span> 4-BRAIN WAR ROOM & LEDGER
+        </button>
       </div>
 
       <div class="stats-bar">
@@ -304,6 +307,203 @@
             </table>
           </div>
         </div>
+      </section>
+
+      <!-- 3. Autonomous 4-Brain War Room & Task Ledger Section -->
+      <section id="view-warroom-section" class="warroom-section hidden">
+        
+        <!-- Top Hero Banner: Large, Crisp, Roomy -->
+        <div class="warroom-hero-banner">
+          <div class="warroom-hero-left">
+            <div class="warroom-badge-live">
+              <span class="pulse-dot-red"></span>
+              <span class="font-pixel">AUTONOMOUS SENTRY & 4-BRAIN WAR ROOM</span>
+            </div>
+            <h2 class="warroom-main-title">DEWAN DIREKSI & RECOVERY COUNCIL</h2>
+            <p class="warroom-main-subtitle">
+              Sistem 4-Otak (Gemini ⚡ ➔ Claude 🧠 ➔ Codex 🛠️ ➔ Hermes 🏛️) mendeteksi insiden, menganalisa root cause, menyusun patch, dan mengeksekusi konsensus secara otomatis tanpa amnesia.
+            </p>
+          </div>
+          <div class="warroom-hero-actions">
+            <button class="btn-warroom-trigger btn-warroom-red" onclick="triggerWarRoomDrill('INCIDENT:PROVIDER_FAILURE', 'Simulasi 503 Provider Outage (Failover Test)', 'Gemini API 503 High Demand Spike')">
+              ⚡ DRILL: 503 OUTAGE
+            </button>
+            <button class="btn-warroom-trigger btn-warroom-yellow" onclick="triggerWarRoomDrill('INCIDENT:WORKER_STALLED', 'Simulasi Worker Stalled (Heartbeat Timeout)', 'Worker lost heartbeat > 120s')">
+              🔄 DRILL: STALLED WORKER
+            </button>
+            <button class="btn-warroom-trigger btn-warroom-cyan" onclick="triggerWarRoomDrill('OPPORTUNITY:KEYWORD_PAGE_ONE', 'Simulasi Peluang SEO Page 1 Jump', 'Keyword cutting acp at pos 7.2')">
+              🎯 DRILL: SEO OPPORTUNITY
+            </button>
+            <button class="btn-warroom-refresh" onclick="refreshWarRoomData()" title="Refresh Live Data">
+              🔄 REFRESH
+            </button>
+          </div>
+        </div>
+
+        <!-- Provider Health & Circuit Breakers Radar -->
+        <div class="circuit-radar-grid">
+          <div class="circuit-card" id="card-circuit-gemini">
+            <div class="circuit-header">
+              <div class="circuit-avatar-wrap">
+                <span class="circuit-avatar">⚡</span>
+                <div>
+                  <h3 class="circuit-name">GEMINI 3+</h3>
+                  <span class="circuit-role">Scout & Rapid Diagnostic</span>
+                </div>
+              </div>
+              <span class="circuit-badge badge-closed" id="badge-circuit-gemini">HEALTHY</span>
+            </div>
+            <div class="circuit-stats-row">
+              <div class="stat-box">
+                <span class="stat-lbl">TOTAL CALLS</span>
+                <span class="stat-val" id="stat-calls-gemini">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">AVG LATENCY</span>
+                <span class="stat-val" id="stat-latency-gemini">--</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">CIRCUIT</span>
+                <span class="stat-val text-green" id="stat-state-gemini">CLOSED</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="circuit-card" id="card-circuit-claude">
+            <div class="circuit-header">
+              <div class="circuit-avatar-wrap">
+                <span class="circuit-avatar">🧠</span>
+                <div>
+                  <h3 class="circuit-name">CLAUDE SONNET</h3>
+                  <span class="circuit-role">Chief Architect & Strategist</span>
+                </div>
+              </div>
+              <span class="circuit-badge badge-closed" id="badge-circuit-claude">HEALTHY</span>
+            </div>
+            <div class="circuit-stats-row">
+              <div class="stat-box">
+                <span class="stat-lbl">TOTAL CALLS</span>
+                <span class="stat-val" id="stat-calls-claude">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">AVG LATENCY</span>
+                <span class="stat-val" id="stat-latency-claude">--</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">CIRCUIT</span>
+                <span class="stat-val text-green" id="stat-state-claude">CLOSED</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="circuit-card" id="card-circuit-codex">
+            <div class="circuit-header">
+              <div class="circuit-avatar-wrap">
+                <span class="circuit-avatar">🛠️</span>
+                <div>
+                  <h3 class="circuit-name">CODEX / OPENROUTER</h3>
+                  <span class="circuit-role">Systems Inspector & Patcher</span>
+                </div>
+              </div>
+              <span class="circuit-badge badge-closed" id="badge-circuit-codex">HEALTHY</span>
+            </div>
+            <div class="circuit-stats-row">
+              <div class="stat-box">
+                <span class="stat-lbl">TOTAL CALLS</span>
+                <span class="stat-val" id="stat-calls-codex">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">AVG LATENCY</span>
+                <span class="stat-val" id="stat-latency-codex">--</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">CIRCUIT</span>
+                <span class="stat-val text-green" id="stat-state-codex">CLOSED</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="circuit-card" id="card-circuit-hermes">
+            <div class="circuit-header">
+              <div class="circuit-avatar-wrap">
+                <span class="circuit-avatar">🏛️</span>
+                <div>
+                  <h3 class="circuit-name">HERMES DIRECTOR</h3>
+                  <span class="circuit-role">Supervisor & Task Ledger Guardian</span>
+                </div>
+              </div>
+              <span class="circuit-badge badge-director" id="badge-circuit-hermes">ACTIVE 24/7</span>
+            </div>
+            <div class="circuit-stats-row">
+              <div class="stat-box">
+                <span class="stat-lbl">ACTIVE TASKS</span>
+                <span class="stat-val text-cyan" id="stat-active-tasks">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">COMPLETED</span>
+                <span class="stat-val text-green" id="stat-done-tasks">0</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-lbl">RECONCILER</span>
+                <span class="stat-val text-yellow">AUTO-SWEEP</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Split Panel: War Room Live Council (Left) vs Task Ledger (Right) -->
+        <div class="warroom-split-container">
+          <!-- Left: Recent & Live Council Sessions -->
+          <div class="warroom-col-sessions">
+            <div class="panel-section-header">
+              <div>
+                <h3 class="panel-title">🚨 SESI DEWAN PERANG DARURAT (WAR ROOM LOGS)</h3>
+                <span class="panel-subtitle">Transkrip dialog 4 AI terstruktur tanpa amnesia</span>
+              </div>
+              <span class="badge-count" id="warroom-session-count">0 Sesi</span>
+            </div>
+
+            <div class="sessions-feed-container" id="warroom-sessions-feed">
+              <div class="loading-state">Memuat data sesi dewan AI...</div>
+            </div>
+          </div>
+
+          <!-- Right: Task Ledger Table -->
+          <div class="warroom-col-ledger">
+            <div class="panel-section-header">
+              <div>
+                <h3 class="panel-title">📋 TASK LEDGER (SINGLE SOURCE OF TRUTH)</h3>
+                <span class="panel-subtitle">Daftar tugas dengan jaminan Idempotency & State Machine</span>
+              </div>
+              <div class="ledger-filters">
+                <button class="filter-chip active" onclick="filterLedgerState('ALL')">SEMUA</button>
+                <button class="filter-chip" onclick="filterLedgerState('RUNNING')">RUNNING</button>
+                <button class="filter-chip" onclick="filterLedgerState('DONE')">DONE</button>
+                <button class="filter-chip" onclick="filterLedgerState('HANDOFF')">HANDOFF</button>
+                <button class="filter-chip" onclick="filterLedgerState('ESCALATED')">ESCALATED</button>
+              </div>
+            </div>
+
+            <div class="ledger-table-wrap">
+              <table class="ledger-table">
+                <thead>
+                  <tr>
+                    <th>STATUS</th>
+                    <th>TASK & TARGET</th>
+                    <th>ROLE / OWNER</th>
+                    <th>PROVIDER</th>
+                    <th>IDEMPOTENCY</th>
+                    <th>UPDATED</th>
+                  </tr>
+                </thead>
+                <tbody id="ledger-table-tbody">
+                  <!-- Injected via JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </section>
 
       <!-- Live Telemetry & Event Stream Sidebar -->

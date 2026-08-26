@@ -160,21 +160,26 @@ function switchView(viewName) {
   currentActiveView = viewName;
   const tabOffice = document.getElementById('tab-office');
   const tabKpi = document.getElementById('tab-kpi');
+  const tabWarroom = document.getElementById('tab-warroom');
   const viewOffice = document.getElementById('view-office-section');
   const viewKpi = document.getElementById('view-kpi-section');
+  const viewWarroom = document.getElementById('view-warroom-section');
 
-  if (viewName === 'office') {
-    tabOffice.classList.add('active');
-    tabKpi.classList.remove('active');
-    viewOffice.classList.remove('hidden');
-    viewKpi.classList.add('hidden');
-    audioFX.playBlip(550, 'triangle', 0.08);
+  tabOffice.classList.toggle('active', viewName === 'office');
+  tabKpi.classList.toggle('active', viewName === 'kpi');
+  if (tabWarroom) tabWarroom.classList.toggle('active', viewName === 'warroom');
+
+  viewOffice.classList.toggle('hidden', viewName !== 'office');
+  viewKpi.classList.toggle('hidden', viewName !== 'kpi');
+  if (viewWarroom) viewWarroom.classList.toggle('hidden', viewName !== 'warroom');
+
+  if (viewName === 'warroom') {
+    if (window.audioFX && window.audioFX.playBlip) window.audioFX.playBlip(650, 'sawtooth', 0.12);
+    refreshWarRoomData();
+  } else if (viewName === 'office') {
+    if (window.audioFX && window.audioFX.playBlip) window.audioFX.playBlip(550, 'triangle', 0.08);
   } else {
-    tabOffice.classList.remove('active');
-    tabKpi.classList.add('active');
-    viewOffice.classList.add('hidden');
-    viewKpi.classList.remove('hidden');
-    audioFX.playBlip(750, 'square', 0.08);
+    if (window.audioFX && window.audioFX.playBlip) window.audioFX.playBlip(750, 'square', 0.08);
   }
 }
 
@@ -699,3 +704,233 @@ async function executeModalAgentAction() {
   officeEngine.showSpeech(ag.id, `⚡ ${ag.actionLabel}!`);
   addEventLog(new Date().toLocaleTimeString('id-ID'), `⚡ Manual trigger berhasil dijalankan untuk: ${ag.name} (${ag.title})`, 'warning');
 }
+
+// ==========================================================================
+// 4-BRAIN AUTONOMOUS WAR ROOM & TASK LEDGER CONTROLLER
+// ==========================================================================
+let warRoomSessionsData = [];
+let taskLedgerData = [];
+let currentLedgerFilter = 'ALL';
+
+async function refreshWarRoomData() {
+  const token = localStorage.getItem('hq_auth_token');
+  const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+  try {
+    // 1. Fetch Director Telemetry
+    const telemRes = await fetch('/api/director/telemetry', { headers });
+    if (telemRes.ok) {
+      const telemData = await telemRes.json();
+      if (telemData.director) {
+        renderWarRoomRadar(telemData.director);
+      }
+    }
+
+    // 2. Fetch War Room Sessions
+    const sessRes = await fetch('/api/war-room/sessions?limit=20', { headers });
+    if (sessRes.ok) {
+      const sessData = await sessRes.json();
+      warRoomSessionsData = sessData.sessions || [];
+      renderWarRoomSessions(warRoomSessionsData);
+    }
+
+    // 3. Fetch Task Ledger
+    const taskRes = await fetch('/api/director/tasks?limit=50', { headers });
+    if (taskRes.ok) {
+      const taskData = await taskRes.json();
+      taskLedgerData = taskData.tasks || [];
+      renderTaskLedgerTable(taskLedgerData);
+    }
+  } catch (err) {
+    console.warn('[WarRoom] Error refreshing data:', err.message);
+  }
+}
+
+function renderWarRoomRadar(director) {
+  if (!director) return;
+
+  // Hermes / Task Counts
+  const counts = director.taskCounts || {};
+  const elActive = document.getElementById('stat-active-tasks');
+  const elDone = document.getElementById('stat-done-tasks');
+  if (elActive) elActive.innerText = (counts.RUNNING || 0) + (counts.VERIFYING || 0) + (counts.CLAIMED || 0);
+  if (elDone) elDone.innerText = counts.DONE || 0;
+
+  // Provider Telemetry
+  const providers = director.providers?.providers || [];
+  for (const p of providers) {
+    const name = p.name?.toLowerCase();
+    const callsEl = document.getElementById(`stat-calls-${name}`);
+    const latEl = document.getElementById(`stat-latency-${name}`);
+    const stateEl = document.getElementById(`stat-state-${name}`);
+    const badgeEl = document.getElementById(`badge-circuit-${name}`);
+
+    if (callsEl) callsEl.innerText = p.totalCalls || 0;
+    if (latEl) latEl.innerText = p.avgLatencyMs ? `${p.avgLatencyMs}ms` : '--';
+    if (stateEl) {
+      stateEl.innerText = p.circuitState || 'CLOSED';
+      stateEl.className = p.circuitState === 'OPEN' ? 'stat-val text-red' : 'stat-val text-green';
+    }
+    if (badgeEl) {
+      badgeEl.innerText = p.circuitState === 'OPEN' ? 'TRIPPED (OPEN)' : 'HEALTHY';
+      badgeEl.className = p.circuitState === 'OPEN' ? 'circuit-badge badge-open' : 'circuit-badge badge-closed';
+    }
+  }
+}
+
+function renderWarRoomSessions(sessions) {
+  const container = document.getElementById('warroom-sessions-feed');
+  const countEl = document.getElementById('warroom-session-count');
+  if (!container) return;
+
+  if (countEl) countEl.innerText = `${sessions.length} Sesi`;
+
+  if (!sessions || sessions.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 30px; text-align: center; color: #718096; font-size: 15px;">
+        🛡️ Belum ada insiden kritis. Sentry 24/7 sedang berpatroli aktif di latar belakang.
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sessions.map(s => {
+    const isResolved = s.state === 'RESOLVED';
+    const dialogHtml = (s.transcript || []).map(t => {
+      const spkClass = (t.speaker || '').toLowerCase();
+      return `
+        <div class="speech-bubble ${spkClass}">
+          <span class="bubble-avatar">${t.avatar || '🤖'}</span>
+          <div class="bubble-content">
+            <div class="bubble-header">
+              <span class="bubble-speaker ${spkClass}">[${t.speaker}] ${t.role || ''}</span>
+              <span class="bubble-time font-mono">${new Date(t.timestamp).toLocaleTimeString('id-ID')}</span>
+            </div>
+            <div class="bubble-text">${formatMarkdownToHtml(t.message)}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="warroom-session-card ${isResolved ? 'resolved' : ''}">
+        <div class="session-card-header">
+          <div class="session-title-wrap">
+            <h4>${escapeHtml(s.title)}</h4>
+            <div class="session-meta-line font-mono">
+              ID: ${s.id} // SUMBER: ${s.event?.source || 'Sentry'} // DIBUAT: ${new Date(s.createdAt).toLocaleString('id-ID')}
+            </div>
+          </div>
+          <span class="session-status-tag ${isResolved ? 'success' : 'warning'}">
+            ${isResolved ? '✅ CONSENSUS SEALED' : '⏳ ' + s.state}
+          </span>
+        </div>
+        <div class="session-dialog-flow">
+          ${dialogHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function filterLedgerState(state) {
+  currentLedgerFilter = state;
+  const chips = document.querySelectorAll('.ledger-filters .filter-chip');
+  chips.forEach(c => {
+    c.classList.toggle('active', c.innerText === state || (state === 'ALL' && c.innerText === 'SEMUA'));
+  });
+  renderTaskLedgerTable(taskLedgerData);
+}
+
+function renderTaskLedgerTable(tasks) {
+  const tbody = document.getElementById('ledger-table-tbody');
+  if (!tbody) return;
+
+  let filtered = tasks || [];
+  if (currentLedgerFilter !== 'ALL') {
+    filtered = filtered.filter(t => t.state === currentLedgerFilter);
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" style="text-align: center; color: #718096; padding: 24px;">
+          Tidak ada tugas dalam status [${currentLedgerFilter}].
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(t => {
+    const shortId = t.id ? t.id.replace('task-', '') : '--';
+    const stateClass = `state-${t.state || 'QUEUED'}`;
+    const dateStr = t.updatedAt ? new Date(t.updatedAt).toLocaleTimeString('id-ID') : '--';
+    const idemShort = t.idempotencyKey ? (t.idempotencyKey.length > 22 ? t.idempotencyKey.slice(0, 20) + '...' : t.idempotencyKey) : 'auto-sha256';
+
+    return `
+      <tr>
+        <td>
+          <span class="state-badge ${stateClass}">${t.state}</span>
+        </td>
+        <td>
+          <strong style="color:#fff; font-size:14px;">${escapeHtml(t.title || 'Untitled Task')}</strong>
+          <div style="font-size:11px; color:#718096;" class="font-mono">#${shortId}</div>
+        </td>
+        <td>
+          <span style="color:#00f0ff; font-weight:700;">${t.role || 'SCOUT'}</span>
+          <div style="font-size:11px; color:#8492a6;">${t.owner || 'unassigned'}</div>
+        </td>
+        <td>
+          <span class="font-mono" style="color:#ffaa00;">${t.activeProvider || t.preferredProvider || 'CASCADE'}</span>
+        </td>
+        <td>
+          <code class="font-mono" style="font-size:11px; color:#a0aec0;">${escapeHtml(idemShort)}</code>
+        </td>
+        <td class="font-mono" style="font-size:12px; color:#94a3b8;">
+          ${dateStr}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function triggerWarRoomDrill(type, title, error) {
+  const token = localStorage.getItem('hq_auth_token');
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+  };
+
+  if (window.audioFX && window.audioFX.playBlip) {
+    window.audioFX.playBlip(880, 'sawtooth', 0.25);
+  }
+
+  addEventLog(new Date().toLocaleTimeString('id-ID'), `🚨 OPERATOR DRILL TRIGGERED: ${title}`, 'warning');
+
+  try {
+    const res = await fetch('/api/war-room/trigger', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        type,
+        title,
+        severity: 'CRITICAL',
+        source: 'operator_drill',
+        error
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok && data.status === 'success') {
+      if (window.audioFX && window.audioFX.playSuccess) window.audioFX.playSuccess();
+      addEventLog(new Date().toLocaleTimeString('id-ID'), `✅ War Room Council berhasil menyegel konsensus untuk sesi '${data.session?.id}'.`, 'success');
+      await refreshWarRoomData();
+    } else {
+      addEventLog(new Date().toLocaleTimeString('id-ID'), `❌ Gagal memicu War Room: ${data.message}`, 'danger');
+    }
+  } catch (err) {
+    addEventLog(new Date().toLocaleTimeString('id-ID'), `❌ Connection error: ${err.message}`, 'danger');
+  }
+}
+

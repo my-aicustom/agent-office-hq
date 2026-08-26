@@ -1499,3 +1499,514 @@ canvas {
   box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
 }
 
+/* ==========================================================================
+   4-BRAIN AUTONOMOUS WAR ROOM & TASK LEDGER (LARGE & LEGIBLE DESIGN)
+   ========================================================================== */
+
+.tab-warroom-highlight {
+  background: linear-gradient(135deg, rgba(255, 0, 85, 0.2), rgba(255, 170, 0, 0.2)) !important;
+  border-color: var(--accent-magenta) !important;
+  color: #fff !important;
+  text-shadow: 0 0 8px rgba(255, 0, 85, 0.6);
+  font-weight: 700 !important;
+}
+
+.tab-warroom-highlight.active {
+  background: linear-gradient(135deg, #ff0055, #ff9900) !important;
+  color: #000 !important;
+  box-shadow: 0 0 16px rgba(255, 0, 85, 0.6) !important;
+}
+
+.warroom-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 24px;
+  overflow-y: auto;
+  background: #090c12;
+}
+
+/* Hero Banner */
+.warroom-hero-banner {
+  background: linear-gradient(135deg, #161b26 0%, #1a1020 100%);
+  border: 2px solid #ff0055;
+  border-radius: 8px;
+  padding: 20px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 0 20px rgba(255, 0, 85, 0.2);
+}
+
+.warroom-badge-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #ff3366;
+  margin-bottom: 6px;
+}
+
+.pulse-dot-red {
+  width: 10px;
+  height: 10px;
+  background: #ff0055;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #ff0055;
+  animation: pulse-red 1.2s infinite;
+}
+
+@keyframes pulse-red {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.85); }
+}
+
+.warroom-main-title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.warroom-main-subtitle {
+  font-size: 15px;
+  color: #a0aec0;
+  line-height: 1.5;
+  max-width: 900px;
+}
+
+.warroom-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.btn-warroom-trigger {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-warroom-red {
+  background: rgba(255, 0, 85, 0.2);
+  border-color: #ff0055;
+  color: #ff6699;
+}
+.btn-warroom-red:hover {
+  background: #ff0055;
+  color: #fff;
+  box-shadow: 0 0 14px rgba(255, 0, 85, 0.6);
+}
+
+.btn-warroom-yellow {
+  background: rgba(255, 230, 0, 0.2);
+  border-color: #ffe600;
+  color: #ffe600;
+}
+.btn-warroom-yellow:hover {
+  background: #ffe600;
+  color: #000;
+  box-shadow: 0 0 14px rgba(255, 230, 0, 0.6);
+}
+
+.btn-warroom-cyan {
+  background: rgba(0, 240, 255, 0.2);
+  border-color: #00f0ff;
+  color: #00f0ff;
+}
+.btn-warroom-cyan:hover {
+  background: #00f0ff;
+  color: #000;
+  box-shadow: 0 0 14px rgba(0, 240, 255, 0.6);
+}
+
+.btn-warroom-refresh {
+  background: #242f44;
+  border: 1px solid #4a5568;
+  color: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.btn-warroom-refresh:hover {
+  background: #4a5568;
+}
+
+/* Circuit Breaker Radar Grid */
+.circuit-radar-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+
+.circuit-card {
+  background: #121824;
+  border: 2px solid #242f44;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.circuit-card:hover {
+  border-color: #3b82f6;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.circuit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.circuit-avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.circuit-avatar {
+  font-size: 26px;
+}
+
+.circuit-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.circuit-role {
+  font-size: 12px;
+  color: #8492a6;
+}
+
+.circuit-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.badge-closed {
+  background: rgba(0, 255, 102, 0.2);
+  color: #00ff66;
+  border: 1px solid #00ff66;
+}
+
+.badge-open {
+  background: rgba(255, 0, 85, 0.25);
+  color: #ff0055;
+  border: 1px solid #ff0055;
+  animation: pulse-red 1s infinite;
+}
+
+.badge-director {
+  background: rgba(255, 191, 0, 0.25);
+  color: #ffbf00;
+  border: 1px solid #ffbf00;
+}
+
+.circuit-stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: #0a0e17;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.stat-box {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-lbl {
+  font-size: 10px;
+  color: #718096;
+  font-family: var(--font-mono);
+}
+
+.stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #ffffff;
+}
+
+/* Split View Container */
+.warroom-split-container {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 16px;
+  min-height: 520px;
+}
+
+.warroom-col-sessions, .warroom-col-ledger {
+  background: #111622;
+  border: 2px solid #1f293d;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-section-header {
+  background: #161d2d;
+  border-bottom: 2px solid #1f293d;
+  padding: 14px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.panel-subtitle {
+  font-size: 12px;
+  color: #8492a6;
+}
+
+.badge-count {
+  background: #242f44;
+  color: #00f0ff;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+/* Sessions Feed */
+.sessions-feed-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.warroom-session-card {
+  background: #151b28;
+  border: 2px solid #2d3748;
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+}
+
+.warroom-session-card.resolved {
+  border-color: rgba(0, 255, 102, 0.4);
+}
+
+.session-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid #242f44;
+  padding-bottom: 10px;
+}
+
+.session-title-wrap h4 {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 4px;
+}
+
+.session-meta-line {
+  font-size: 12px;
+  color: #718096;
+  font-family: var(--font-mono);
+}
+
+.session-status-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 255, 102, 0.2);
+  color: #00ff66;
+}
+
+/* Speech Bubbles - High Contrast & Large Text */
+.session-dialog-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.speech-bubble {
+  display: flex;
+  gap: 14px;
+  background: #0d121c;
+  border: 1px solid #242f44;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.speech-bubble.gemini {
+  border-left: 4px solid #00f0ff;
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.05), #0d121c);
+}
+
+.speech-bubble.claude {
+  border-left: 4px solid #9d4edd;
+  background: linear-gradient(90deg, rgba(157, 78, 221, 0.05), #0d121c);
+}
+
+.speech-bubble.codex {
+  border-left: 4px solid #ff9900;
+  background: linear-gradient(90deg, rgba(255, 153, 0, 0.05), #0d121c);
+}
+
+.speech-bubble.hermes {
+  border-left: 4px solid #00ff66;
+  background: linear-gradient(90deg, rgba(0, 255, 102, 0.08), #0d121c);
+}
+
+.bubble-avatar {
+  font-size: 28px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.bubble-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bubble-speaker {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.bubble-speaker.gemini { color: #00f0ff; }
+.bubble-speaker.claude { color: #c77dff; }
+.bubble-speaker.codex { color: #ffaa00; }
+.bubble-speaker.hermes { color: #00ff66; }
+
+.bubble-time {
+  font-size: 11px;
+  color: #718096;
+  font-family: var(--font-mono);
+}
+
+.bubble-text {
+  font-size: 15px;
+  color: #edf2f7;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+/* Task Ledger Table */
+.ledger-filters {
+  display: flex;
+  gap: 6px;
+}
+
+.filter-chip {
+  background: #1e2638;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: #3b82f6;
+  border-color: #60a5fa;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.ledger-table-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.ledger-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  text-align: left;
+}
+
+.ledger-table th {
+  background: #182030;
+  color: #94a3b8;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 12px 14px;
+  border-bottom: 2px solid #242f44;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.ledger-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #1a2233;
+  color: #e2e8f0;
+}
+
+.ledger-table tr:hover {
+  background: #171f2e;
+}
+
+.state-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.state-DONE { background: rgba(0, 255, 102, 0.2); color: #00ff66; border: 1px solid #00ff66; }
+.state-RUNNING { background: rgba(0, 240, 255, 0.2); color: #00f0ff; border: 1px solid #00f0ff; animation: pulse-green 1.5s infinite; }
+.state-VERIFYING { background: rgba(255, 230, 0, 0.2); color: #ffe600; border: 1px solid #ffe600; }
+.state-QUEUED { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid #64748b; }
+.state-CLAIMED { background: rgba(157, 78, 221, 0.2); color: #c77dff; border: 1px solid #9d4edd; }
+.state-HANDOFF { background: rgba(255, 153, 0, 0.25); color: #ffaa00; border: 1px solid #ff9900; }
+.state-RETRYING { background: rgba(255, 200, 0, 0.25); color: #ffdd00; border: 1px solid #ffcc00; }
+.state-ESCALATED { background: rgba(255, 0, 85, 0.25); color: #ff0055; border: 1px solid #ff0055; }
+.state-BLOCKED { background: rgba(255, 0, 0, 0.25); color: #ff4444; border: 1px solid #ff0000; }
+
+
