@@ -1,11 +1,13 @@
 ﻿// Iron Director — Master Autonomous Swarm Director (Hermes Director)
-// 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler & Self-Healing Engine.
+// 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler, Sentry & War Room Council.
 
 import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
 import { TaskLedger } from './task_ledger.mjs';
 import { CircuitBreaker } from './circuit_breaker.mjs';
 import { ProviderRouter } from './providers/provider_router.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
+import { SentryWatcher } from './sentry_watcher.mjs';
+import { WarRoomCouncil } from './war_room_council.mjs';
 
 export class IronDirector {
   constructor({
@@ -21,6 +23,23 @@ export class IronDirector {
     this.config = { ...DEFAULT_DIRECTOR_CONFIG, ...config };
     this.telegramNotifier = telegramNotifier;
     this.reconcileTimer = null;
+
+    // Sentry Watcher & Autonomous 4-Brain War Room Council
+    this.sentry = new SentryWatcher({ ledger: this.ledger, circuitBreaker: this.circuitBreaker });
+    this.warRoom = new WarRoomCouncil({
+      ledger: this.ledger,
+      providerRouter: this.providerRouter,
+      telegramNotifier: this.telegramNotifier
+    });
+
+    // Wire Sentry alerts directly into the autonomous War Room Council
+    this.sentry.on('sentry_alert', async (event) => {
+      try {
+        await this.warRoom.convene(event);
+      } catch (err) {
+        console.error(`[IronDirector] War Room auto-convene error: ${err.message}`);
+      }
+    });
   }
 
   /**
@@ -126,6 +145,15 @@ export class IronDirector {
         const errMsg = execErr.message || String(execErr);
         console.warn(`[IronDirector] Task '${taskId}' encountered error (handoff ${handoffs}): ${errMsg}`);
 
+        // Sentry report provider outage on retryable errors
+        if (/503|429|demand|timeout|overloaded/i.test(errMsg)) {
+          this.sentry.reportProviderOutage({
+            providerName: currentProvider || 'unknown',
+            model: 'primary',
+            error: errMsg
+          });
+        }
+
         if (handoffs <= this.config.maxHandoffs) {
           // Hand off to next model preserving evidence
           this.ledger.transition(taskId, TASK_STATES.HANDOFF, {
@@ -143,6 +171,13 @@ export class IronDirector {
             evidence: { finalError: errMsg }
           });
 
+          // Trigger Sentry pipeline alert
+          this.sentry.reportPipelineFailure({
+            pipelineName: task.title,
+            error: errMsg,
+            runId: taskId
+          });
+
           if (this.telegramNotifier) {
             this.telegramNotifier(`🚨 <b>IRON DIRECTOR ALERT: Task Escalated</b>\nTask: ${task.title}\nID: ${task.id}\nError: ${errMsg}`).catch(() => {});
           }
@@ -157,7 +192,10 @@ export class IronDirector {
    * Reconciles abandoned or stalled tasks that lost their heartbeat.
    */
   reconcile() {
+    // Sentry scans for stalled tasks and triggers war room if needed
+    const stalledEvents = this.sentry.scanStalledWorkers(this.config.heartbeatTimeoutMs);
     const stuck = this.ledger.getStuckTasks(this.config.heartbeatTimeoutMs);
+
     for (const t of stuck) {
       console.warn(`[IronDirector] Reconciler: Detected stalled task '${t.id}' (state: ${t.state}, owner: ${t.owner}). Recovering...`);
       try {
@@ -169,7 +207,11 @@ export class IronDirector {
         console.error(`[IronDirector] Failed to recover task '${t.id}': ${e.message}`);
       }
     }
-    return { reconciledCount: stuck.length, tasks: stuck.map(t => t.id) };
+    return {
+      reconciledCount: stuck.length,
+      stalledEventsCount: stalledEvents.length,
+      tasks: stuck.map(t => t.id)
+    };
   }
 
   startDaemon() {
@@ -177,7 +219,7 @@ export class IronDirector {
     this.reconcileTimer = setInterval(() => {
       this.reconcile();
     }, this.config.reconciliationIntervalMs);
-    console.log(`[IronDirector] Daemon active. Reconciling every ${this.config.reconciliationIntervalMs / 1000}s.`);
+    console.log(`[IronDirector] Daemon active with Sentry Watcher. Reconciling every ${this.config.reconciliationIntervalMs / 1000}s.`);
   }
 
   stopDaemon() {
@@ -200,6 +242,7 @@ export class IronDirector {
       uptimeSeconds: Math.round(process.uptime()),
       taskCounts: counts,
       recentTasks: allTasks.slice(0, 15),
+      recentWarRooms: this.warRoom.getSessions({ limit: 5 }),
       providers: this.providerRouter.getTelemetry()
     };
   }

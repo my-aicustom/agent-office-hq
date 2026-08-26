@@ -791,6 +791,64 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // War Room Council Endpoints (4-Brain Autonomous Sessions)
+    if (reqPath === '/api/war-room/sessions' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 50;
+      const state = parsedUrl.searchParams.get('state') || undefined;
+      const sessions = ironDirector.warRoom.getSessions({ limit, state });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', count: sessions.length, sessions }, null, 2));
+      return;
+    }
+
+    if (reqPath.startsWith('/api/war-room/sessions/') && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const sessionId = reqPath.replace('/api/war-room/sessions/', '').trim();
+      const session = ironDirector.warRoom.getSessionById(sessionId);
+      if (!session) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: `War Room session '${sessionId}' not found.` }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', session }, null, 2));
+      return;
+    }
+
+    if (reqPath === '/api/war-room/trigger' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+
+      if (!body.title) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: 'Field "title" is required to trigger War Room.' }));
+        return;
+      }
+
+      try {
+        const session = await ironDirector.warRoom.convene({
+          title: body.title,
+          type: body.type || 'INCIDENT:MANUAL_TRIGGER',
+          severity: body.severity || 'HIGH',
+          source: body.source || 'operator_dispatch',
+          error: body.error || null,
+          metadata: body.metadata || {}
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', session }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
+      return;
+    }
+
     if (reqPath === '/api/system-status') {
       const statusData = {
         status: 'ONLINE',
