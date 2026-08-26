@@ -12,17 +12,39 @@ import { budiAgent } from './agents/budi/agent.mjs';
 import { rianAgent } from './agents/rian/agent.mjs';
 import { gilangAgent } from './agents/gilang/agent.mjs';
 import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
+import { IronDirector } from './director/iron_director.mjs';
+
+export const ironDirector = new IronDirector();
+ironDirector.startDaemon();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = process.env.PORT || 3333;
+// Native .env file loader
+const envPath = path.join(__dirname, '.env');
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, 'utf8');
+  for (const line of envContent.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^([^=]+)=(.*)$/);
+    if (match) {
+      const key = match[1].trim();
+      const val = match[2].trim().replace(/^["']|["']$/g, '');
+      if (!process.env[key]) {
+        process.env[key] = val;
+      }
+    }
+  }
+}
+
+const PORT = process.env.PORT || 3399;
 const ROOT = __dirname;
 const MASTER_PASSWORD = process.env.HQ_PASSWORD;
 const AUTH_SECRET = process.env.HQ_AUTH_SECRET;
 
 if (!MASTER_PASSWORD?.trim() || !AUTH_SECRET?.trim()) {
-  console.error('FATAL: HQ_PASSWORD and HQ_AUTH_SECRET must both be set to non-empty values.');
+  console.error('FATAL: HQ_PASSWORD and HQ_AUTH_SECRET must both be set to non-empty values in .env or environment.');
   process.exit(1);
 }
 
@@ -707,6 +729,65 @@ const server = http.createServer(async (req, res) => {
           provenance: { source: 'google_ads_search_terms_manual', status: 'MANUAL', fetchedAt }
         }))
       }, null, 2));
+      return;
+    }
+
+    // Iron Director — Task Ledger & State Machine Telemetry
+    if (reqPath === '/api/director/telemetry' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', director: ironDirector.getTelemetry() }, null, 2));
+      return;
+    }
+
+    if (reqPath === '/api/director/tasks' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const state = parsedUrl.searchParams.get('state') || undefined;
+      const role = parsedUrl.searchParams.get('role') || undefined;
+      const owner = parsedUrl.searchParams.get('owner') || undefined;
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 50;
+
+      const tasks = ironDirector.ledger.listTasks({ state, role, owner, limit });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', count: tasks.length, tasks }, null, 2));
+      return;
+    }
+
+    if (reqPath === '/api/director/dispatch' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+
+      if (!body.title) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: 'Field "title" is required to dispatch task.' }));
+        return;
+      }
+
+      try {
+        const result = await ironDirector.dispatch(body);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', task: result }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
+      return;
+    }
+
+    if (reqPath === '/api/director/reconcile' && req.method === 'POST') {
+      try {
+        const result = ironDirector.reconcile();
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', ...result }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
       return;
     }
 
