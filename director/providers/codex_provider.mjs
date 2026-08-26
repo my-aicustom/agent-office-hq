@@ -1,4 +1,4 @@
-﻿// Iron Director — Codex Provider Adapter (Codebase Inspector, Patcher & AST Reviewer)
+// Iron Director — Codex Provider Adapter (Codebase Inspector, Patcher & AST Reviewer)
 // Responsible for verifying generated code, AST integrity, and automated patch creation.
 
 import { BaseProvider } from './base_provider.mjs';
@@ -39,7 +39,8 @@ export class CodexProvider extends BaseProvider {
         body: JSON.stringify({
           model: this.model,
           messages,
-          temperature: 0.2
+          temperature: 0.2,
+          max_tokens: maxOutputTokens || 300
         }),
         signal: controller.signal
       });
@@ -60,6 +61,11 @@ export class CodexProvider extends BaseProvider {
         model: this.model,
         text,
         latencyMs: latency,
+        usage: {
+          promptTokens: data.usage?.prompt_tokens || 0,
+          completionTokens: data.usage?.completion_tokens || 0,
+          totalTokens: data.usage?.total_tokens || 0
+        },
         raw: data
       };
     } catch (err) {

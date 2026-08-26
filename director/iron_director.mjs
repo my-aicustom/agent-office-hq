@@ -1,4 +1,4 @@
-﻿// Iron Director — Master Autonomous Swarm Director (Hermes Director)
+// Iron Director — Master Autonomous Swarm Director (Hermes Director)
 // 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler, Sentry & Shared Case Bus.
 
 import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
@@ -45,9 +45,9 @@ export class IronDirector {
       ledger: this.ledger,
       dedup: this.dedup,
       quorumEngine: this.quorumEngine,
-      geminiProvider: this.providerRouter.gemini,
-      claudeProvider: this.providerRouter.claude,
-      codexProvider: this.providerRouter.codex,
+      geminiProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('gemini') : null,
+      claudeProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('claude') : null,
+      codexProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('codex') : null,
       telegramNotifier: this.telegramNotifier
     });
 

@@ -1,4 +1,4 @@
-﻿// Iron Director — Gemini Provider Adapter (Fast Triage / Scout)
+// Iron Director — Gemini Provider Adapter (Fast Triage / Scout)
 // Supports multi-model Gemini 3+ cascade with exponential backoff.
 
 import { BaseProvider } from './base_provider.mjs';
@@ -75,6 +75,11 @@ export class GeminiProvider extends BaseProvider {
               model,
               text,
               latencyMs: latency,
+              usage: {
+                promptTokens: data.usageMetadata?.promptTokenCount || 0,
+                completionTokens: data.usageMetadata?.candidatesTokenCount || 0,
+                totalTokens: data.usageMetadata?.totalTokenCount || 0
+              },
               raw: data
             };
           }
