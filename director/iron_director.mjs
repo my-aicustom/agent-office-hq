@@ -1,5 +1,5 @@
 ﻿// Iron Director — Master Autonomous Swarm Director (Hermes Director)
-// 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler, Sentry & War Room Council.
+// 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler, Sentry & Shared Case Bus.
 
 import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
 import { TaskLedger } from './task_ledger.mjs';
@@ -7,7 +7,10 @@ import { CircuitBreaker } from './circuit_breaker.mjs';
 import { ProviderRouter } from './providers/provider_router.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
 import { SentryWatcher } from './sentry_watcher.mjs';
-import { WarRoomCouncil } from './war_room_council.mjs';
+import { PersistentDedup } from './persistent_dedup.mjs';
+import { QuorumEngine } from './quorum_engine.mjs';
+import { ActiveTaskConsumer } from './active_task_consumer.mjs';
+import { SharedCaseBus } from './shared_case_bus.mjs';
 
 export class IronDirector {
   constructor({
@@ -24,20 +27,39 @@ export class IronDirector {
     this.telegramNotifier = telegramNotifier;
     this.reconcileTimer = null;
 
-    // Sentry Watcher & Autonomous 4-Brain War Room Council
-    this.sentry = new SentryWatcher({ ledger: this.ledger, circuitBreaker: this.circuitBreaker });
-    this.warRoom = new WarRoomCouncil({
+    // 1. Persistent Dedup Engine (Disk-backed SHA-256)
+    this.dedup = new PersistentDedup();
+
+    // 2. Strict Quorum Engine (Zero fake consensus)
+    this.quorumEngine = new QuorumEngine({ minLiveProviders: 2 });
+
+    // 3. Active Task Worker Consumer (Real field execution)
+    this.consumer = new ActiveTaskConsumer({
       ledger: this.ledger,
-      providerRouter: this.providerRouter,
+      pollIntervalMs: 3000,
+      workerId: 'hermes-worker-primary'
+    });
+
+    // 4. Shared Case Bus (Single-Pass Multi-Brain Assembly)
+    this.caseBus = new SharedCaseBus({
+      ledger: this.ledger,
+      dedup: this.dedup,
+      quorumEngine: this.quorumEngine,
+      geminiProvider: this.providerRouter.gemini,
+      claudeProvider: this.providerRouter.claude,
+      codexProvider: this.providerRouter.codex,
       telegramNotifier: this.telegramNotifier
     });
 
-    // Wire Sentry alerts directly into the autonomous War Room Council
+    // 5. Sentry Watcher (24/7 Incident Monitor)
+    this.sentry = new SentryWatcher({ ledger: this.ledger, circuitBreaker: this.circuitBreaker });
+
+    // Wire Sentry alerts directly into the Shared Case Bus
     this.sentry.on('sentry_alert', async (event) => {
       try {
-        await this.warRoom.convene(event);
+        await this.caseBus.processIncident(event);
       } catch (err) {
-        console.error(`[IronDirector] War Room auto-convene error: ${err.message}`);
+        console.error(`[IronDirector] Case Bus auto-process error: ${err.message}`);
       }
     });
   }
@@ -145,15 +167,6 @@ export class IronDirector {
         const errMsg = execErr.message || String(execErr);
         console.warn(`[IronDirector] Task '${taskId}' encountered error (handoff ${handoffs}): ${errMsg}`);
 
-        // Sentry report provider outage on retryable errors
-        if (/503|429|demand|timeout|overloaded/i.test(errMsg)) {
-          this.sentry.reportProviderOutage({
-            providerName: currentProvider || 'unknown',
-            model: 'primary',
-            error: errMsg
-          });
-        }
-
         if (handoffs <= this.config.maxHandoffs) {
           // Hand off to next model preserving evidence
           this.ledger.transition(taskId, TASK_STATES.HANDOFF, {
@@ -161,7 +174,6 @@ export class IronDirector {
             reason: `Failover handoff ${handoffs} triggered: ${errMsg}`,
             evidence: { error: errMsg, failedProvider: currentProvider }
           });
-          // Swap preferred provider to next candidate
           currentProvider = null; // Let router pick next available
         } else {
           // Exhausted all handoffs -> Escalate
@@ -192,7 +204,6 @@ export class IronDirector {
    * Reconciles abandoned or stalled tasks that lost their heartbeat.
    */
   reconcile() {
-    // Sentry scans for stalled tasks and triggers war room if needed
     const stalledEvents = this.sentry.scanStalledWorkers(this.config.heartbeatTimeoutMs);
     const stuck = this.ledger.getStuckTasks(this.config.heartbeatTimeoutMs);
 
@@ -215,11 +226,15 @@ export class IronDirector {
   }
 
   startDaemon() {
-    if (this.reconcileTimer) return;
-    this.reconcileTimer = setInterval(() => {
-      this.reconcile();
-    }, this.config.reconciliationIntervalMs);
-    console.log(`[IronDirector] Daemon active with Sentry Watcher. Reconciling every ${this.config.reconciliationIntervalMs / 1000}s.`);
+    // 1. Start Reconciler sweep
+    if (!this.reconcileTimer) {
+      this.reconcileTimer = setInterval(() => {
+        this.reconcile();
+      }, this.config.reconciliationIntervalMs);
+    }
+    // 2. Start Active Task Consumer
+    this.consumer.start();
+    console.log(`[IronDirector] Daemon active with Sentry, Quorum Engine & Active Consumer.`);
   }
 
   stopDaemon() {
@@ -227,6 +242,7 @@ export class IronDirector {
       clearInterval(this.reconcileTimer);
       this.reconcileTimer = null;
     }
+    this.consumer.stop();
   }
 
   getTelemetry() {
@@ -237,12 +253,20 @@ export class IronDirector {
       counts[t.state] = (counts[t.state] || 0) + 1;
     }
 
+    const recentCases = this.caseBus.listCases({ limit: 10 });
+    const totalCostIdr = recentCases.reduce((acc, c) => acc + (c.budget?.totalCostIdr || 0), 0);
+    const totalTokens = recentCases.reduce((acc, c) => acc + (c.budget?.totalTokensUsed || 0), 0);
+
     return {
       status: 'ONLINE',
       uptimeSeconds: Math.round(process.uptime()),
       taskCounts: counts,
       recentTasks: allTasks.slice(0, 15),
-      recentWarRooms: this.warRoom.getSessions({ limit: 5 }),
+      recentCases,
+      costAccounting: {
+        totalCostIdr: Math.round(totalCostIdr * 100) / 100,
+        totalTokens
+      },
       providers: this.providerRouter.getTelemetry()
     };
   }

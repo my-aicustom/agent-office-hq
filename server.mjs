@@ -849,6 +849,64 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // Shared Case Bus Endpoints (Durable Multi-AI Case Packets)
+    if (reqPath === '/api/cases' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 50;
+      const status = parsedUrl.searchParams.get('status') || undefined;
+      const cases = ironDirector.caseBus.listCases({ limit, status });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', count: cases.length, cases }, null, 2));
+      return;
+    }
+
+    if (reqPath.startsWith('/api/cases/') && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const caseId = reqPath.replace('/api/cases/', '').trim();
+      const caseData = ironDirector.caseBus.getCase(caseId);
+      if (!caseData) {
+        res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: `Case packet '${caseId}' not found.` }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', case: caseData }, null, 2));
+      return;
+    }
+
+    if (reqPath === '/api/cases/trigger' && req.method === 'POST') {
+      let body;
+      try {
+        body = await parseJsonBody(req);
+      } catch (error) {
+        sendJsonBodyError(res, error);
+        return;
+      }
+
+      if (!body.title) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: 'Field "title" is required to trigger case.' }));
+        return;
+      }
+
+      try {
+        const result = await ironDirector.caseBus.processIncident({
+          title: body.title,
+          type: body.type || 'INCIDENT:MANUAL_TRIGGER',
+          severity: body.severity || 'HIGH',
+          source: body.source || 'operator_dispatch',
+          error: body.error || null,
+          metadata: body.metadata || {}
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', result }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
+      return;
+    }
+
     if (reqPath === '/api/system-status') {
       const statusData = {
         status: 'ONLINE',

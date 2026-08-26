@@ -726,11 +726,19 @@ async function refreshWarRoomData() {
       }
     }
 
-    // 2. Fetch War Room Sessions
-    const sessRes = await fetch('/api/war-room/sessions?limit=20', { headers });
-    if (sessRes.ok) {
-      const sessData = await sessRes.json();
-      warRoomSessionsData = sessData.sessions || [];
+    // 2. Fetch Durable Cases & War Room Sessions
+    const casesRes = await fetch('/api/cases?limit=20', { headers });
+    if (casesRes.ok) {
+      const casesData = await casesRes.json();
+      if (casesData.cases && casesData.cases.length > 0) {
+        warRoomSessionsData = casesData.cases;
+      } else {
+        const sessRes = await fetch('/api/war-room/sessions?limit=20', { headers });
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          warRoomSessionsData = sessData.sessions || [];
+        }
+      }
       renderWarRoomSessions(warRoomSessionsData);
     }
 
@@ -765,15 +773,19 @@ function renderWarRoomRadar(director) {
     const stateEl = document.getElementById(`stat-state-${name}`);
     const badgeEl = document.getElementById(`badge-circuit-${name}`);
 
-    if (callsEl) callsEl.innerText = p.totalCalls || 0;
-    if (latEl) latEl.innerText = p.avgLatencyMs ? `${p.avgLatencyMs}ms` : '--';
+    const totalCalls = p.totalCalls ?? p.metrics?.totalCalls ?? 0;
+    const avgLat = p.avgLatencyMs ?? p.metrics?.avgLatencyMs ?? null;
+    const circuitState = p.circuitState || p.circuit?.state || 'CLOSED';
+
+    if (callsEl) callsEl.innerText = totalCalls;
+    if (latEl) latEl.innerText = avgLat ? `${avgLat}ms` : '--';
     if (stateEl) {
-      stateEl.innerText = p.circuitState || 'CLOSED';
-      stateEl.className = p.circuitState === 'OPEN' ? 'stat-val text-red' : 'stat-val text-green';
+      stateEl.innerText = circuitState;
+      stateEl.className = circuitState === 'OPEN' ? 'stat-val text-red' : 'stat-val text-green';
     }
     if (badgeEl) {
-      badgeEl.innerText = p.circuitState === 'OPEN' ? 'TRIPPED (OPEN)' : 'HEALTHY';
-      badgeEl.className = p.circuitState === 'OPEN' ? 'circuit-badge badge-open' : 'circuit-badge badge-closed';
+      badgeEl.innerText = circuitState === 'OPEN' ? 'TRIPPED (OPEN)' : 'HEALTHY';
+      badgeEl.className = circuitState === 'OPEN' ? 'circuit-badge badge-open' : 'circuit-badge badge-closed';
     }
   }
 }
@@ -783,7 +795,7 @@ function renderWarRoomSessions(sessions) {
   const countEl = document.getElementById('warroom-session-count');
   if (!container) return;
 
-  if (countEl) countEl.innerText = `${sessions.length} Sesi`;
+  if (countEl) countEl.innerText = `${sessions.length} Sesi / Case`;
 
   if (!sessions || sessions.length === 0) {
     container.innerHTML = `
@@ -795,35 +807,61 @@ function renderWarRoomSessions(sessions) {
   }
 
   container.innerHTML = sessions.map(s => {
-    const isResolved = s.state === 'RESOLVED';
-    const dialogHtml = (s.transcript || []).map(t => {
+    const isResolved = s.status === 'RESOLVED' || s.state === 'RESOLVED';
+    const isNoQuorum = s.status === 'ESCALATED_NO_QUORUM';
+    const isDegraded = s.status === 'RESOLVED_DEGRADED';
+    const totalCost = s.budget?.totalCostIdr ? `Rp ${s.budget.totalCostIdr.toLocaleString('id-ID')}` : null;
+    const totalTokens = s.budget?.totalTokensUsed ? `${s.budget.totalTokensUsed} tokens` : null;
+
+    const turnsList = s.turns || s.transcript || [];
+    const dialogHtml = turnsList.map(t => {
       const spkClass = (t.speaker || '').toLowerCase();
+      const actualModel = t.actualModel ? `<span class="badge-status-pill" style="font-size:10px; margin-left:6px; color:#a0aec0;">${escapeHtml(t.actualModel)}</span>` : '';
+      const usageInfo = t.usage?.costIdr !== undefined
+        ? `<span class="font-mono" style="font-size:10px; color:#718096; margin-left:auto;">${t.usage.totalTokens} tkn (${Math.round(t.usage.costIdr * 100) / 100} IDR)</span>`
+        : '';
+      const errorMsg = t.status === 'FAILED' && t.error
+        ? `<div class="text-red font-mono" style="font-size:12px; margin-top:4px;">❌ Error: ${escapeHtml(t.error)}</div>`
+        : '';
+
       return `
         <div class="speech-bubble ${spkClass}">
           <span class="bubble-avatar">${t.avatar || '🤖'}</span>
           <div class="bubble-content">
             <div class="bubble-header">
-              <span class="bubble-speaker ${spkClass}">[${t.speaker}] ${t.role || ''}</span>
-              <span class="bubble-time font-mono">${new Date(t.timestamp).toLocaleTimeString('id-ID')}</span>
+              <span class="bubble-speaker ${spkClass}">[${t.speaker}] ${t.role || ''} ${actualModel}</span>
+              ${usageInfo}
+              <span class="bubble-time font-mono" style="margin-left:8px;">${new Date(t.timestamp).toLocaleTimeString('id-ID')}</span>
             </div>
-            <div class="bubble-text">${formatMarkdownToHtml(t.message)}</div>
+            <div class="bubble-text">${formatMarkdownToHtml(t.message || '')}</div>
+            ${errorMsg}
           </div>
         </div>
       `;
     }).join('');
 
+    let statusBadge = '<span class="session-status-tag success">✅ CONSENSUS SEALED</span>';
+    if (isNoQuorum) statusBadge = '<span class="session-status-tag" style="background:rgba(255,0,85,0.2); color:#ff0055; border:1px solid #ff0055;">🚨 NO QUORUM (REJECTED)</span>';
+    else if (isDegraded) statusBadge = '<span class="session-status-tag" style="background:rgba(255,200,0,0.2); color:#ffcc00; border:1px solid #ffcc00;">⚠️ DEGRADED (1 MODEL)</span>';
+    else if (!isResolved) statusBadge = `<span class="session-status-tag warning">⏳ ${s.status || s.state}</span>`;
+
+    const costBadge = totalCost
+      ? `<span class="font-mono" style="font-size:12px; color:#00ff66; background:#0d1810; padding:2px 8px; border-radius:4px; border:1px solid #00ff66;">💰 Biaya Riil: ${totalCost} (${totalTokens})</span>`
+      : '';
+
     return `
       <div class="warroom-session-card ${isResolved ? 'resolved' : ''}">
         <div class="session-card-header">
           <div class="session-title-wrap">
-            <h4>${escapeHtml(s.title)}</h4>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+              <h4>${escapeHtml(s.title)}</h4>
+              ${costBadge}
+            </div>
             <div class="session-meta-line font-mono">
-              ID: ${s.id} // SUMBER: ${s.event?.source || 'Sentry'} // DIBUAT: ${new Date(s.createdAt).toLocaleString('id-ID')}
+              ID: ${s.caseId || s.id} // FINGERPRINT: ${(s.fingerprint || 'N/A').slice(0, 16)}... // DIBUAT: ${new Date(s.createdAt).toLocaleString('id-ID')}
             </div>
           </div>
-          <span class="session-status-tag ${isResolved ? 'success' : 'warning'}">
-            ${isResolved ? '✅ CONSENSUS SEALED' : '⏳ ' + s.state}
-          </span>
+          ${statusBadge}
         </div>
         <div class="session-dialog-flow">
           ${dialogHtml}
