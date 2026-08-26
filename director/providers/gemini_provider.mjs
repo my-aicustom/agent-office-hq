@@ -20,12 +20,17 @@ export class GeminiProvider extends BaseProvider {
     this.fetchFn = fetchFn;
   }
 
-  isAvailable() {
-    return Boolean(this.apiKey);
+  getApiKey() {
+    return this.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
   }
 
-  async execute({ system = '', user = '', jsonMode = false, timeoutMs = 25000 } = {}) {
-    if (!this.isAvailable()) {
+  isAvailable() {
+    return Boolean(this.getApiKey());
+  }
+
+  async execute({ system = '', user = '', jsonMode = false, timeoutMs = 25000, maxOutputTokens = 250 } = {}) {
+    const key = this.getApiKey();
+    if (!key) {
       throw new Error('Gemini API key is not configured.');
     }
 
@@ -43,12 +48,13 @@ export class GeminiProvider extends BaseProvider {
         const timer = setTimeout(() => controller.abort(), timeoutMs);
 
         try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
           const bodyPayload = {
             system_instruction: system ? { parts: [{ text: system }] } : undefined,
             contents: [{ parts: [{ text: user }] }],
             generationConfig: {
-              temperature: 0.4
+              temperature: 0.4,
+              maxOutputTokens: maxOutputTokens || 250
             }
           };
 

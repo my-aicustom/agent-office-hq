@@ -14,13 +14,10 @@ import { gilangAgent } from './agents/gilang/agent.mjs';
 import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
 import { IronDirector } from './director/iron_director.mjs';
 
-export const ironDirector = new IronDirector();
-ironDirector.startDaemon();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Native .env file loader
+// Native .env file loader (Loaded FIRST before agent & director instantiation)
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, 'utf8');
@@ -37,6 +34,9 @@ if (fs.existsSync(envPath)) {
     }
   }
 }
+
+export const ironDirector = new IronDirector();
+ironDirector.startDaemon();
 
 const PORT = process.env.PORT || 3399;
 const ROOT = __dirname;

@@ -12,12 +12,17 @@ export class CodexProvider extends BaseProvider {
     this.fetchFn = fetchFn;
   }
 
-  isAvailable() {
-    return Boolean(this.apiKey);
+  getApiKey() {
+    return this.apiKey || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '';
   }
 
-  async execute({ system = '', user = '', timeoutMs = 30000 } = {}) {
-    if (!this.isAvailable()) {
+  isAvailable() {
+    return Boolean(this.getApiKey());
+  }
+
+  async execute({ system = '', user = '', timeoutMs = 30000, maxOutputTokens = 300 } = {}) {
+    const key = this.getApiKey();
+    if (!key) {
       throw new Error('Codex / OpenRouter API key is not configured.');
     }
 
@@ -34,7 +39,7 @@ export class CodexProvider extends BaseProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${key}`
         },
         body: JSON.stringify({
           model: this.model,
