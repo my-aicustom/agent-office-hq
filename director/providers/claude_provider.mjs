@@ -15,11 +15,16 @@ export class ClaudeProvider extends BaseProvider {
   }
 
   isAvailable() {
-    return Boolean(this.apiKey);
+    return Boolean(this.getApiKey());
   }
 
-  async execute({ system = '', user = '', timeoutMs = 45000 } = {}) {
-    if (!this.isAvailable()) {
+  getApiKey() {
+    return this.apiKey || process.env.ANTHROPIC_API_KEY || '';
+  }
+
+  async execute({ system = '', user = '', timeoutMs = 45000, maxOutputTokens = 400 } = {}) {
+    const key = this.getApiKey();
+    if (!key) {
       throw new Error('Anthropic API key is not configured.');
     }
 
@@ -32,12 +37,12 @@ export class ClaudeProvider extends BaseProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.apiKey,
+          'x-api-key': key,
           'anthropic-version': '2023-06-01'
         },
         body: JSON.stringify({
           model: this.model,
-          max_tokens: 4096,
+          max_tokens: maxOutputTokens || 400,
           system: system || undefined,
           messages: [{ role: 'user', content: user }]
         }),
@@ -60,6 +65,17 @@ export class ClaudeProvider extends BaseProvider {
         model: this.model,
         text,
         latencyMs: latency,
+        usage: {
+          promptTokens: data.usage?.input_tokens || 0,
+          completionTokens: data.usage?.output_tokens || 0,
+          totalTokens: (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
+        },
+        outboundEvidence: {
+          verified: true,
+          httpStatus: res.status,
+          apiHost: 'api.anthropic.com',
+          requestId: data.id || null
+        },
         raw: data
       };
     } catch (err) {

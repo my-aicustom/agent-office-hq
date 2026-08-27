@@ -19,12 +19,14 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
-          VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           HQ_PASSWORD: ${{ secrets.HQ_PASSWORD }}
           HQ_AUTH_SECRET: ${{ secrets.HQ_AUTH_SECRET }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USERNAME" ] || [ -z "$VPS_PASSWORD" ] || [ -z "$HQ_PASSWORD" ] || [ -z "$HQ_AUTH_SECRET" ]; then
-            echo "::error::Missing one or more required secrets (VPS_HOST, VPS_USERNAME, VPS_PASSWORD, HQ_PASSWORD, HQ_AUTH_SECRET). Set them in repo Settings > Secrets and variables > Actions."
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USERNAME" ] || [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$HQ_PASSWORD" ] || [ -z "$HQ_AUTH_SECRET" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::Missing one or more required production secrets."
             exit 1
           fi
 
@@ -33,9 +35,10 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
-          password: ${{ secrets.VPS_PASSWORD }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
           script: |
+            set -eu
             echo "🚀 [CI/CD] Starting Deployment to /opt/agent-office-hq..."
             
             # Ensure target directory exists
@@ -62,10 +65,32 @@ jobs:
             # Run Docker container cleanly
             docker run -d --name agent-office-hq --restart always --network coolify \
               -v /opt/agent-office-hq:/app -w /app \
+              -e PORT=3333 \
+              -e APP_COMMIT_SHA="${{ github.sha }}" \
               -e HQ_PASSWORD="${{ secrets.HQ_PASSWORD }}" \
               -e HQ_AUTH_SECRET="${{ secrets.HQ_AUTH_SECRET }}" \
+              -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
+              -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
               -e NODE_ENV=production \
               -e TRUST_PROXY=true \
+              --health-cmd="wget -qO- http://127.0.0.1:3333/healthz >/dev/null || exit 1" \
+              --health-interval=15s --health-timeout=5s --health-retries=3 \
               node:20-alpine node server.mjs
 
-            echo "✅ [CI/CD] Deployment completed successfully! Live on https://seo.tepatlaser.com"
+            for attempt in 1 2 3 4 5 6; do
+              if docker exec agent-office-hq wget -qO- http://127.0.0.1:3333/healthz >/dev/null; then
+                echo "Container readiness check passed."
+                exit 0
+              fi
+              sleep 2
+            done
+            docker logs --tail 50 agent-office-hq
+            echo "Container failed readiness check."
+            exit 1
+
+      - name: Verify public production health
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          response="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://seo.tepatlaser.com/healthz)"
+          node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="READY" || body.commitSha!==process.env.EXPECTED_SHA || !body.providers?.gemini || !body.providers?.openrouter) process.exit(1);' "$response"

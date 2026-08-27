@@ -818,7 +818,7 @@ function renderWarRoomSessions(sessions) {
       const spkClass = (t.speaker || '').toLowerCase();
       const actualModel = t.actualModel ? `<span class="badge-status-pill" style="font-size:10px; margin-left:6px; color:#a0aec0;">${escapeHtml(t.actualModel)}</span>` : '';
       const usageInfo = t.usage?.costIdr !== undefined
-        ? `<span class="font-mono" style="font-size:10px; color:#718096; margin-left:auto;">${t.usage.totalTokens} tkn (${Math.round(t.usage.costIdr * 100) / 100} IDR)</span>`
+        ? `<span class="font-mono" style="font-size:10px; color:#718096; margin-left:auto;">${t.usage.totalTokens} tkn (~${Math.round(t.usage.costIdr * 100) / 100} IDR)</span>`
         : '';
       const errorMsg = t.status === 'FAILED' && t.error
         ? `<div class="text-red font-mono" style="font-size:12px; margin-top:4px;">❌ Error: ${escapeHtml(t.error)}</div>`
@@ -840,13 +840,13 @@ function renderWarRoomSessions(sessions) {
       `;
     }).join('');
 
-    let statusBadge = '<span class="session-status-tag success">✅ CONSENSUS SEALED</span>';
+    let statusBadge = '<span class="session-status-tag success">✅ VERIFIED DECISION</span>';
     if (isNoQuorum) statusBadge = '<span class="session-status-tag" style="background:rgba(255,0,85,0.2); color:#ff0055; border:1px solid #ff0055;">🚨 NO QUORUM (REJECTED)</span>';
     else if (isDegraded) statusBadge = '<span class="session-status-tag" style="background:rgba(255,200,0,0.2); color:#ffcc00; border:1px solid #ffcc00;">⚠️ DEGRADED (1 MODEL)</span>';
     else if (!isResolved) statusBadge = `<span class="session-status-tag warning">⏳ ${s.status || s.state}</span>`;
 
     const costBadge = totalCost
-      ? `<span class="font-mono" style="font-size:12px; color:#00ff66; background:#0d1810; padding:2px 8px; border-radius:4px; border:1px solid #00ff66;">💰 Biaya Riil: ${totalCost} (${totalTokens})</span>`
+      ? `<span class="font-mono" style="font-size:12px; color:#00ff66; background:#0d1810; padding:2px 8px; border-radius:4px; border:1px solid #00ff66;">💰 Estimasi: ${totalCost} (${totalTokens})</span>`
       : '';
 
     return `

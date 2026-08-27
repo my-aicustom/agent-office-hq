@@ -72,9 +72,12 @@ export class CasePacket {
     error = null,
     latencyMs = 0,
     promptTokens = 0,
-    completionTokens = 0
+    completionTokens = 0,
+    providerKey = null,
+    outboundEvidence = null,
+    vote = null
   } = {}) {
-    const costData = CostCalculator.calculateCostIdr(speaker, promptTokens, completionTokens);
+    const costData = CostCalculator.calculateCostIdr(providerKey || speaker, promptTokens, completionTokens);
 
     // Update cumulative token & cost budget
     this.budget.totalPromptTokens += promptTokens;
@@ -92,6 +95,9 @@ export class CasePacket {
       message,
       error,
       latencyMs,
+      providerKey: providerKey ? String(providerKey).toLowerCase() : null,
+      outboundEvidence,
+      vote,
       usage: costData,
       timestamp: new Date().toISOString()
     };

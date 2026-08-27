@@ -33,7 +33,7 @@ export class IronDirector {
     // 2. Strict Quorum Engine (Zero fake consensus)
     this.quorumEngine = new QuorumEngine({ minLiveProviders: 2 });
 
-    // 3. Active Task Worker Consumer (Real field execution)
+    // 3. Evidence-gated task consumer (unconfigured mutations fail closed)
     this.consumer = new ActiveTaskConsumer({
       ledger: this.ledger,
       pollIntervalMs: 3000,
@@ -47,7 +47,7 @@ export class IronDirector {
       quorumEngine: this.quorumEngine,
       geminiProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('gemini') : null,
       claudeProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('claude') : null,
-      codexProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('codex') : null,
+      codexProvider: this.providerRouter?.providers?.get ? this.providerRouter.providers.get('openrouter') : null,
       telegramNotifier: this.telegramNotifier
     });
 

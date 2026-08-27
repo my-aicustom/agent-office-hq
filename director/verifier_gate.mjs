@@ -4,6 +4,70 @@
 import vm from 'vm';
 
 export class VerifierGate {
+  static validateCaseVotes(turns = [], { requiredActionType, minApprovals = 2 } = {}) {
+    const errors = [];
+    const approvals = [];
+    const seenProviders = new Set();
+
+    if (!requiredActionType) errors.push('A required action type is mandatory.');
+
+    for (const turn of turns) {
+      if (turn?.status !== 'SUCCESS') continue;
+      const providerKey = String(turn.providerKey || '').toLowerCase();
+      const vote = turn.vote;
+      const evidence = turn.outboundEvidence;
+
+      if (!providerKey || seenProviders.has(providerKey)) continue;
+      seenProviders.add(providerKey);
+
+      if (!evidence?.verified || evidence.httpStatus < 200 || evidence.httpStatus >= 300) {
+        errors.push(`Provider '${providerKey || 'unknown'}' has no verified outbound HTTP evidence.`);
+        continue;
+      }
+      if (typeof evidence.apiHost !== 'string' || !evidence.apiHost.trim()) {
+        errors.push(`Provider '${providerKey}' supplied no outbound API host.`);
+        continue;
+      }
+      if (!turn.usage || turn.usage.totalTokens <= 0) {
+        errors.push(`Provider '${providerKey}' reported no token usage.`);
+        continue;
+      }
+      if (!vote || !['APPROVE', 'REJECT', 'ESCALATE'].includes(vote.decision)) {
+        errors.push(`Provider '${providerKey}' returned an invalid structured decision.`);
+        continue;
+      }
+      if (vote.actionType !== requiredActionType) {
+        errors.push(`Provider '${providerKey}' voted on '${vote.actionType}', expected '${requiredActionType}'.`);
+        continue;
+      }
+      if (typeof vote.rationale !== 'string' || vote.rationale.trim().length < 20) {
+        errors.push(`Provider '${providerKey}' rationale is too short.`);
+        continue;
+      }
+      if (!Array.isArray(vote.acceptanceCriteria) || vote.acceptanceCriteria.length === 0) {
+        errors.push(`Provider '${providerKey}' supplied no acceptance criteria.`);
+        continue;
+      }
+      if (!Array.isArray(vote.risks)) {
+        errors.push(`Provider '${providerKey}' risks must be an array.`);
+        continue;
+      }
+      if (vote.decision === 'APPROVE') approvals.push(providerKey);
+    }
+
+    if (approvals.length < minApprovals) {
+      errors.push(`Only ${approvals.length} verified approvals; ${minApprovals} required.`);
+    }
+
+    return {
+      passed: errors.length === 0,
+      errors,
+      approvedProviders: approvals,
+      requiredActionType,
+      minApprovals
+    };
+  }
+
   /**
    * Validates structured JSON artifact against strict type & boundary rules.
    */

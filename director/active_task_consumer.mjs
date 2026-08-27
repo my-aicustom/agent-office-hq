@@ -1,18 +1,29 @@
 // Iron Director — Active Task Worker Consumer
-// Continuously drains QUEUED tasks from TaskLedger and executes real work in the field.
+// Drains QUEUED tasks and marks DONE only when an executor returns verifiable evidence.
 
 import { TASK_STATES } from './constants.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
+import crypto from 'crypto';
+
+const MUTATING_ACTIONS = [
+  'FAILOVER_BLOG_PUBLISH',
+  'APPLY_AD_NEGATIVES',
+  'SEO_OPPORTUNITY_OPTIMIZE'
+];
 
 export class ActiveTaskConsumer {
   constructor({
     ledger = null,
     pollIntervalMs = 3000,
-    workerId = 'iron-consumer-1'
+    workerId = 'iron-consumer-1',
+    executors = {},
+    fetchFn = globalThis.fetch
   } = {}) {
     this.ledger = ledger;
     this.pollIntervalMs = pollIntervalMs;
     this.workerId = workerId;
+    this.executors = executors;
+    this.fetchFn = fetchFn;
     this.handlers = new Map();
     this.timer = null;
     this.isProcessing = false;
@@ -23,48 +34,53 @@ export class ActiveTaskConsumer {
   }
 
   _registerDefaultHandlers() {
-    // 1. Failover Blog Publisher Execution Handler
-    this.registerHandler('FAILOVER_BLOG_PUBLISH', async (task) => {
-      const { keyword = 'cutting-acp', targetPage = '/fasad-acp/' } = task.input || {};
-      // Execute verified recovery payload
-      return {
-        action: 'BLOG_PUBLISHED_RECOVERY',
-        targetKeyword: keyword,
-        targetPage,
-        verifiedAt: new Date().toISOString(),
-        buildStatus: 'VERIFIED_CLEAN'
-      };
-    });
+    for (const actionType of MUTATING_ACTIONS) {
+      const executor = this.executors[actionType];
+      if (typeof executor === 'function') this.registerHandler(actionType, executor);
+    }
 
-    // 2. Negative Keyword Applier Execution Handler
-    this.registerHandler('APPLY_AD_NEGATIVES', async (task) => {
-      const { terms = [] } = task.input || {};
-      return {
-        action: 'NEGATIVES_APPLIED',
-        appliedCount: terms.length,
-        appliedTerms: terms,
-        appliedAt: new Date().toISOString()
-      };
-    });
+    // Built-in read-only field executor. It produces independently checkable HTTP evidence.
+    this.registerHandler('HTTP_HEALTH_CHECK', async (task) => {
+      const targetUrl = task.input?.metadata?.targetUrl || task.input?.targetUrl;
+      const url = new URL(targetUrl);
+      if (url.protocol !== 'https:') {
+        const error = new Error('HTTP_HEALTH_CHECK only permits https targets.');
+        error.code = 'UNSAFE_TARGET';
+        throw error;
+      }
 
-    // 3. SEO Opportunity Optimization Handler
-    this.registerHandler('SEO_OPPORTUNITY_OPTIMIZE', async (task) => {
-      const { keyword = '', position = 0 } = task.input || {};
-      return {
-        action: 'SEO_OPTIMIZATION_PLANNED',
-        keyword,
-        targetPosition: 1,
-        optimizedAt: new Date().toISOString()
-      };
-    });
+      const startedAt = new Date().toISOString();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15_000);
+      let response;
+      try {
+        response = await this.fetchFn(url, {
+          method: 'GET',
+          headers: { Accept: 'application/json, text/plain;q=0.9, */*;q=0.1' },
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
+      const body = (await response.text()).slice(0, 65_536);
+      if (!response.ok) {
+        const error = new Error(`Health target returned HTTP ${response.status}.`);
+        error.code = 'EXTERNAL_VERIFICATION_FAILED';
+        throw error;
+      }
 
-    // 4. Default General Execution Handler
-    this.registerHandler('DEFAULT', async (task) => {
       return {
-        action: 'AUTO_RESOLVED',
-        taskTitle: task.title,
-        processedBy: this.workerId,
-        completedAt: new Date().toISOString()
+        actionType: 'HTTP_HEALTH_CHECK',
+        status: 'VERIFIED',
+        externalEffect: 'READ_ONLY',
+        evidence: [{
+          kind: 'HTTP_RESPONSE',
+          targetUrl: url.toString(),
+          httpStatus: response.status,
+          bodySha256: crypto.createHash('sha256').update(body).digest('hex'),
+          startedAt,
+          verifiedAt: new Date().toISOString()
+        }]
       };
     });
   }
@@ -79,6 +95,7 @@ export class ActiveTaskConsumer {
   async processNextTask() {
     if (!this.ledger || this.isProcessing) return null;
     this.isProcessing = true;
+    let activeTaskId = null;
 
     try {
       const queuedTasks = this.ledger.listTasks({ state: TASK_STATES.QUEUED, limit: 1 });
@@ -89,6 +106,7 @@ export class ActiveTaskConsumer {
 
       const task = queuedTasks[0];
       const taskId = task.id;
+      activeTaskId = taskId;
 
       // 1. Claim Lease
       this.ledger.claimTask(taskId, this.workerId);
@@ -101,7 +119,12 @@ export class ActiveTaskConsumer {
 
       // 3. Determine handler
       const actionType = task.input?.actionType || 'DEFAULT';
-      const handler = this.handlers.get(actionType) || this.handlers.get('DEFAULT');
+      const handler = this.handlers.get(actionType);
+      if (!handler) {
+        const error = new Error(`No real executor configured for action '${actionType}'.`);
+        error.code = 'ACTION_EXECUTOR_NOT_CONFIGURED';
+        throw error;
+      }
 
       const startTime = Date.now();
       this.ledger.heartbeat(taskId, this.workerId);
@@ -116,7 +139,17 @@ export class ActiveTaskConsumer {
         reason: 'Validating execution output integrity'
       });
 
-      const verification = VerifierGate.verifyArtifact(executionResult, { type: 'json' });
+      const verification = VerifierGate.verifyArtifact(executionResult, {
+        type: 'json',
+        rules: {
+          requiredFields: ['actionType', 'status', 'evidence'],
+          arrayBounds: { evidence: { min: 1, max: 20 } }
+        }
+      });
+      if (executionResult?.status !== 'VERIFIED') {
+        verification.passed = false;
+        verification.errors.push("Execution status must be 'VERIFIED'.");
+      }
       if (!verification.passed) {
         throw new Error(`Task output failed quality gate: ${verification.errors.join('; ')}`);
       }
@@ -128,8 +161,6 @@ export class ActiveTaskConsumer {
         output: executionResult,
         evidence: { executionLatencyMs: latencyMs, workerId: this.workerId }
       });
-      completedTask.output = executionResult;
-      completedTask.evidence = { executionLatencyMs: latencyMs, workerId: this.workerId };
 
       const logEntry = {
         taskId,
@@ -145,6 +176,16 @@ export class ActiveTaskConsumer {
       return completedTask;
     } catch (err) {
       console.error(`[ActiveTaskConsumer] Error processing task: ${err.message}`);
+      if (activeTaskId && this.ledger.getTask(activeTaskId)) {
+        const blocked = err.code === 'ACTION_EXECUTOR_NOT_CONFIGURED';
+        this.ledger.transition(activeTaskId, blocked ? TASK_STATES.BLOCKED : TASK_STATES.FAILED, {
+          actor: this.workerId,
+          reason: err.message,
+          evidence: { errorCode: err.code || 'EXECUTION_FAILED', workerId: this.workerId }
+        });
+        this.isProcessing = false;
+        return this.ledger.getTask(activeTaskId);
+      }
       this.isProcessing = false;
       return null;
     }

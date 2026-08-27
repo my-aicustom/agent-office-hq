@@ -1,5 +1,5 @@
 ﻿// Iron Director — Cost Calculator & Token Pricing Engine
-// Calculates exact real-world API token costs in Indonesian Rupiah (IDR).
+// Estimates API token costs in IDR from provider-reported usage and configured rates.
 // Exchange rate benchmark: 1 USD = Rp 16.000
 
 export const PROVIDER_PRICING_PER_1M_TOKENS = Object.freeze({
@@ -16,7 +16,12 @@ export const PROVIDER_PRICING_PER_1M_TOKENS = Object.freeze({
   codex: {
     promptUsd: 0.15,
     completionUsd: 0.60,
-    name: 'Codex / Mini Router'
+    name: 'Legacy OpenRouter alias'
+  },
+  openrouter: {
+    promptUsd: 0.15,
+    completionUsd: 0.60,
+    name: 'OpenRouter / openai/gpt-4o-mini'
   }
 });
 
@@ -24,10 +29,10 @@ const USD_TO_IDR = 16_000;
 
 export class CostCalculator {
   /**
-   * Calculates actual cost in Rupiah based on tokens consumed.
+   * Calculates an estimate in Rupiah based on provider-reported tokens.
    */
   static calculateCostIdr(providerKey, promptTokens = 0, completionTokens = 0) {
-    const pricing = PROVIDER_PRICING_PER_1M_TOKENS[providerKey.toLowerCase()] || PROVIDER_PRICING_PER_1M_TOKENS.codex;
+    const pricing = PROVIDER_PRICING_PER_1M_TOKENS[providerKey.toLowerCase()] || PROVIDER_PRICING_PER_1M_TOKENS.openrouter;
     const promptCostUsd = (promptTokens / 1_000_000) * pricing.promptUsd;
     const completionCostUsd = (completionTokens / 1_000_000) * pricing.completionUsd;
     const totalCostUsd = promptCostUsd + completionCostUsd;
@@ -39,6 +44,8 @@ export class CostCalculator {
       totalTokens: promptTokens + completionTokens,
       costUsd: totalCostUsd,
       costIdr: totalCostIdr,
+      accountingType: 'ESTIMATE_FROM_REPORTED_TOKENS',
+      usdToIdrRate: USD_TO_IDR,
       rateUsdPer1M: pricing
     };
   }

@@ -12,6 +12,44 @@ import { VerifierGate } from './verifier_gate.mjs';
 import { TASK_ROLES, TASK_PERMISSIONS } from './constants.mjs';
 
 const CASES_DIR = path.resolve('data/director/cases');
+const EXECUTABLE_ACTIONS = new Set([
+  'FAILOVER_BLOG_PUBLISH',
+  'APPLY_AD_NEGATIVES',
+  'SEO_OPPORTUNITY_OPTIMIZE',
+  'HTTP_HEALTH_CHECK'
+]);
+
+function proposedActionFor(event = {}) {
+  const requested = String(event.metadata?.requestedActionType || '').toUpperCase();
+  return EXECUTABLE_ACTIONS.has(requested) ? requested : 'MANUAL_REVIEW';
+}
+
+function parseStructuredVote(text, requiredActionType) {
+  const raw = String(text || '').trim();
+  const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  const vote = JSON.parse(fenced ? fenced[1] : raw);
+  return {
+    decision: String(vote.decision || '').toUpperCase(),
+    actionType: String(vote.actionType || '').toUpperCase(),
+    rationale: String(vote.rationale || '').trim(),
+    risks: Array.isArray(vote.risks) ? vote.risks.map(String) : [],
+    acceptanceCriteria: Array.isArray(vote.acceptanceCriteria)
+      ? vote.acceptanceCriteria.map(String).filter(Boolean)
+      : []
+  };
+}
+
+function votePrompt(event, proposedActionType) {
+  return (
+    `Event title: ${event.title}\n` +
+    `Event error: ${event.error || 'N/A'}\n` +
+    `Metadata: ${JSON.stringify(event.metadata || {})}\n` +
+    `Proposed action: ${proposedActionType}\n\n` +
+    'Independently assess this exact action. Return JSON only with: ' +
+    'decision (APPROVE, REJECT, or ESCALATE), actionType, rationale, risks (array), ' +
+    'acceptanceCriteria (non-empty array). Never claim an external action already happened.'
+  );
+}
 
 export class SharedCaseBus {
   constructor({
@@ -84,6 +122,7 @@ export class SharedCaseBus {
    * Processes an incident or opportunity through the Single-Pass Assembly Line.
    */
   async processIncident(sentryEvent) {
+    const proposedActionType = proposedActionFor(sentryEvent);
     const caseId = `case-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const casePacket = new CasePacket({
       caseId,
@@ -111,30 +150,30 @@ export class SharedCaseBus {
     if (this.geminiProvider && typeof this.geminiProvider.execute === 'function') {
       const startTime = Date.now();
       try {
-        const prompt =
-          `Terjadi insiden/event berikut:\n` +
-          `Judul: ${sentryEvent.title}\n` +
-          `Error: ${sentryEvent.error || 'N/A'}\n` +
-          `Metadata: ${JSON.stringify(sentryEvent.metadata || {})}\n\n` +
-          `Tugas: Berikan diagnosa teknis singkat (max 100 kata). Jangan halusinasi.`;
+        const prompt = votePrompt(sentryEvent, proposedActionType);
 
         const res = await this.geminiProvider.execute({
           system: 'Kamu adalah Gemini, Telemetry Specialist di Iron Swarm.',
           user: prompt,
-          maxOutputTokens: 250
+          jsonMode: true,
+          maxOutputTokens: 1000
         });
 
-        geminiDiagnosis = res.text.trim();
+        const vote = parseStructuredVote(res.text, proposedActionType);
+        geminiDiagnosis = vote.rationale;
         casePacket.addTurn({
           speaker: 'GEMINI',
           role: 'Scout & Diagnostics',
           avatar: '⚡',
           status: 'SUCCESS',
           actualModel: res.model || 'gemini-3.6-flash',
-          message: geminiDiagnosis,
+          message: vote.rationale,
           latencyMs: Date.now() - startTime,
-          promptTokens: res.usage?.promptTokens || 120,
-          completionTokens: res.usage?.completionTokens || 80
+          promptTokens: res.usage?.promptTokens ?? 0,
+          completionTokens: res.usage?.completionTokens ?? 0,
+          providerKey: res.provider || 'gemini',
+          outboundEvidence: res.outboundEvidence || null,
+          vote
         });
       } catch (err) {
         // RECORD ACTUAL FAILURE - NO FAKE CANNED STRINGS!
@@ -169,10 +208,7 @@ export class SharedCaseBus {
     if (this.claudeProvider && typeof this.claudeProvider.execute === 'function') {
       const startTime = Date.now();
       try {
-        const prompt =
-          `Insiden: ${sentryEvent.title}\n` +
-          `Diagnosa Gemini: ${geminiDiagnosis || 'Gemini Offline / Failed'}\n\n` +
-          `Tugas: Rancang strategi pemulihan atau rencana aksi konkret (max 150 kata).`;
+        const prompt = votePrompt(sentryEvent, proposedActionType);
 
         const res = await this.claudeProvider.execute({
           system: 'Kamu adalah Claude, Chief Architect di Iron Swarm.',
@@ -180,17 +216,21 @@ export class SharedCaseBus {
           maxOutputTokens: 400
         });
 
-        claudeStrategy = res.text.trim();
+        const vote = parseStructuredVote(res.text, proposedActionType);
+        claudeStrategy = vote.rationale;
         casePacket.addTurn({
           speaker: 'CLAUDE',
           role: 'Chief Architect',
           avatar: '🧠',
           status: 'SUCCESS',
           actualModel: res.model || 'claude-sonnet',
-          message: claudeStrategy,
+          message: vote.rationale,
           latencyMs: Date.now() - startTime,
-          promptTokens: res.usage?.promptTokens || 180,
-          completionTokens: res.usage?.completionTokens || 120
+          promptTokens: res.usage?.promptTokens ?? 0,
+          completionTokens: res.usage?.completionTokens ?? 0,
+          providerKey: res.provider || 'claude',
+          outboundEvidence: res.outboundEvidence || null,
+          vote
         });
       } catch (err) {
         casePacket.addTurn({
@@ -218,55 +258,58 @@ export class SharedCaseBus {
     this._saveCase(casePacket);
 
     // =========================================================================
-    // TURN 3: CODEX (Identity-Pinned Systems Inspector & Patcher)
+    // TURN 3: OPENROUTER MODEL (Identity-Pinned Independent Reviewer)
     // =========================================================================
     let codexValidation = '';
     if (this.codexProvider && typeof this.codexProvider.execute === 'function') {
       const startTime = Date.now();
       try {
-        const prompt =
-          `Strategi Pemulihan: ${claudeStrategy || 'N/A'}\n\n` +
-          `Tugas: Verifikasi kesiapan teknis, schema check, dan safe action execution (max 100 kata).`;
+        const prompt = votePrompt(sentryEvent, proposedActionType);
 
         const res = await this.codexProvider.execute({
-          system: 'Kamu adalah Codex, Systems Inspector & Patcher di Iron Swarm.',
+          system: 'You are an OpenRouter-hosted model acting as an independent systems reviewer.',
           user: prompt,
+          jsonMode: true,
           maxOutputTokens: 300
         });
 
-        codexValidation = res.text.trim();
+        const vote = parseStructuredVote(res.text, proposedActionType);
+        codexValidation = vote.rationale;
         casePacket.addTurn({
-          speaker: 'CODEX',
-          role: 'Systems Inspector',
+          speaker: 'OPENROUTER',
+          role: 'Model Router Reviewer',
           avatar: '🛠️',
           status: 'SUCCESS',
           actualModel: res.model || 'codex-inspector',
-          message: codexValidation,
+          message: vote.rationale,
           latencyMs: Date.now() - startTime,
-          promptTokens: res.usage?.promptTokens || 140,
-          completionTokens: res.usage?.completionTokens || 90
+          promptTokens: res.usage?.promptTokens ?? 0,
+          completionTokens: res.usage?.completionTokens ?? 0,
+          providerKey: res.provider || 'openrouter',
+          outboundEvidence: res.outboundEvidence || null,
+          vote
         });
       } catch (err) {
         casePacket.addTurn({
-          speaker: 'CODEX',
-          role: 'Systems Inspector',
+          speaker: 'OPENROUTER',
+          role: 'Model Router Reviewer',
           avatar: '🛠️',
           status: 'FAILED',
-          actualModel: 'codex-inspector',
+          actualModel: this.codexProvider?.model || 'openrouter-unavailable',
           error: err.message || String(err),
-          message: `[ERROR] Codex call failed: ${err.message}`,
+          message: `[ERROR] OpenRouter call failed: ${err.message}`,
           latencyMs: Date.now() - startTime
         });
       }
     } else {
       casePacket.addTurn({
-        speaker: 'CODEX',
-        role: 'Systems Inspector',
+        speaker: 'OPENROUTER',
+        role: 'Model Router Reviewer',
         avatar: '🛠️',
         status: 'FAILED',
         actualModel: 'unconfigured',
-        error: 'Codex provider not configured.',
-        message: '[ERROR] Codex provider unconfigured.'
+        error: 'OpenRouter provider not configured.',
+        message: '[ERROR] OpenRouter provider unconfigured.'
       });
     }
     this._saveCase(casePacket);
@@ -274,10 +317,10 @@ export class SharedCaseBus {
     // =========================================================================
     // TURN 4: HERMES QUORUM EVALUATION & DETERMINISTIC ENFORCEMENT
     // =========================================================================
-    const verifierResult = VerifierGate.validateJson(
-      { diagnosis: geminiDiagnosis, strategy: claudeStrategy },
-      { requiredFields: [] }
-    );
+    const verifierResult = VerifierGate.validateCaseVotes(casePacket.turns, {
+      requiredActionType: proposedActionType,
+      minApprovals: this.quorumEngine.minLiveProviders
+    });
 
     const quorumResult = this.quorumEngine.evaluate({
       turns: casePacket.turns,
@@ -286,24 +329,26 @@ export class SharedCaseBus {
 
     let dispatchedTaskId = null;
 
-    if (quorumResult.status === QUORUM_STATES.QUORUM_MET || quorumResult.status === QUORUM_STATES.DEGRADED) {
-      // Determine Action Type for Active Task Consumer
-      let actionType = 'DEFAULT';
-      if (/blog|publish/i.test(sentryEvent.title) || /503/i.test(sentryEvent.error || '')) {
-        actionType = 'FAILOVER_BLOG_PUBLISH';
-      } else if (/waste|negative/i.test(sentryEvent.title)) {
-        actionType = 'APPLY_AD_NEGATIVES';
-      } else if (/seo|keyword/i.test(sentryEvent.title)) {
-        actionType = 'SEO_OPPORTUNITY_OPTIMIZE';
-      }
+    if (quorumResult.status === QUORUM_STATES.QUORUM_MET) {
+      const actionType = proposedActionType;
 
-      if (this.ledger) {
+      if (this.ledger && EXECUTABLE_ACTIONS.has(actionType)) {
         // Enqueue verified task with canonical fingerprint as idempotency key
+        const permissionsByAction = {
+          HTTP_HEALTH_CHECK: [TASK_PERMISSIONS.READ],
+          FAILOVER_BLOG_PUBLISH: [TASK_PERMISSIONS.READ, TASK_PERMISSIONS.WRITE_CODE, TASK_PERMISSIONS.DEPLOY, TASK_PERMISSIONS.PUBLISH],
+          APPLY_AD_NEGATIVES: [TASK_PERMISSIONS.READ, TASK_PERMISSIONS.ADS_MUTATION],
+          SEO_OPPORTUNITY_OPTIMIZE: [TASK_PERMISSIONS.READ, TASK_PERMISSIONS.WRITE_CODE]
+        };
+        const providerVotes = casePacket.turns
+          .filter(turn => turn.vote)
+          .map(turn => ({ providerKey: turn.providerKey, actualModel: turn.actualModel, vote: turn.vote }));
+        const acceptanceCriteria = [...new Set(providerVotes.flatMap(item => item.vote.acceptanceCriteria || []))];
         const { task } = this.ledger.createTask({
           title: `[Auto-Remediation] ${sentryEvent.title}`,
           role: TASK_ROLES.SUPERVISOR,
           owner: 'hermes-director',
-          permissions: [TASK_PERMISSIONS.READ, TASK_PERMISSIONS.WRITE_CODE], // LEAST-PRIVILEGE (No auto-publish)
+          permissions: permissionsByAction[actionType],
           input: {
             caseId,
             actionType,
@@ -311,6 +356,8 @@ export class SharedCaseBus {
             geminiDiagnosis,
             claudeStrategy,
             codexValidation,
+            providerVotes,
+            acceptanceCriteria,
             metadata: sentryEvent.metadata
           },
           idempotencyKey: `remediation:${casePacket.fingerprint}`
@@ -319,9 +366,9 @@ export class SharedCaseBus {
       }
 
       const hermesVerdict =
-        `🏛️ <b>HERMES CONSENSUS SEALED</b>\n` +
+        `🏛️ <b>HERMES VERIFIED ACTION DECISION</b>\n` +
         `Quorum Status: <code>${quorumResult.status}</code> (${quorumResult.liveCount}/${quorumResult.minRequired} Live Models)\n` +
-        `- Biaya Riil: Rp ${casePacket.budget.totalCostIdr.toLocaleString('id-ID')} (${casePacket.budget.totalTokensUsed} tokens)\n` +
+        `- Estimasi biaya: Rp ${casePacket.budget.totalCostIdr.toLocaleString('id-ID')} (${casePacket.budget.totalTokensUsed} tokens)\n` +
         `- Task Ledger ID: <code>${dispatchedTaskId || 'N/A'}</code> (Action: ${dispatchedTaskId ? 'Auto-Enqueued to Consumer' : 'None'})`;
 
       casePacket.addTurn({
@@ -338,7 +385,7 @@ export class SharedCaseBus {
 
       if (this.telegramNotifier) {
         this.telegramNotifier(
-          `✅ <b>IRON WAR ROOM: CONSENSUS SEALED</b>\n` +
+          `✅ <b>IRON WAR ROOM: VERIFIED ACTION DECISION</b>\n` +
           `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
           `📌 <b>Case:</b> ${sentryEvent.title}\n` +
           `💰 <b>Biaya:</b> Rp ${casePacket.budget.totalCostIdr.toLocaleString('id-ID')} (${casePacket.budget.totalTokensUsed} tokens)\n` +

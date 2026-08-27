@@ -1879,7 +1879,8 @@ canvas {
   background: linear-gradient(90deg, rgba(157, 78, 221, 0.05), #0d121c);
 }
 
-.speech-bubble.codex {
+.speech-bubble.codex,
+.speech-bubble.openrouter {
   border-left: 4px solid #ff9900;
   background: linear-gradient(90deg, rgba(255, 153, 0, 0.05), #0d121c);
 }
@@ -1916,7 +1917,8 @@ canvas {
 
 .bubble-speaker.gemini { color: #00f0ff; }
 .bubble-speaker.claude { color: #c77dff; }
-.bubble-speaker.codex { color: #ffaa00; }
+.bubble-speaker.codex,
+.bubble-speaker.openrouter { color: #ffaa00; }
 .bubble-speaker.hermes { color: #00ff66; }
 
 .bubble-time {

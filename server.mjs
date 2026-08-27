@@ -35,18 +35,23 @@ if (fs.existsSync(envPath)) {
   }
 }
 
-export const ironDirector = new IronDirector();
-ironDirector.startDaemon();
-
-const PORT = process.env.PORT || 3399;
+const PORT = process.env.PORT || 3333;
 const ROOT = __dirname;
 const MASTER_PASSWORD = process.env.HQ_PASSWORD;
 const AUTH_SECRET = process.env.HQ_AUTH_SECRET;
 
-if (!MASTER_PASSWORD?.trim() || !AUTH_SECRET?.trim()) {
-  console.error('FATAL: HQ_PASSWORD and HQ_AUTH_SECRET must both be set to non-empty values in .env or environment.');
+const requiredRuntimeVariables = ['HQ_PASSWORD', 'HQ_AUTH_SECRET'];
+if (process.env.NODE_ENV === 'production') {
+  requiredRuntimeVariables.push('GEMINI_API_KEY', 'OPENROUTER_API_KEY');
+}
+const missingRuntimeVariables = requiredRuntimeVariables.filter(name => !process.env[name]?.trim());
+if (missingRuntimeVariables.length > 0) {
+  console.error(`FATAL: Missing required runtime variables: ${missingRuntimeVariables.join(', ')}.`);
   process.exit(1);
 }
+
+export const ironDirector = new IronDirector();
+ironDirector.startDaemon();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -316,6 +321,22 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (reqPath === '/healthz' && req.method === 'GET') {
+    res.setHeader('Cache-Control', 'no-store');
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({
+      status: 'READY',
+      commitSha: process.env.APP_COMMIT_SHA || 'unknown',
+      providers: {
+        gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
+        openrouter: Boolean(process.env.OPENROUTER_API_KEY),
+        claude: Boolean(process.env.ANTHROPIC_API_KEY)
+      },
+      uptimeSeconds: Math.round(process.uptime())
+    }));
     return;
   }
 
@@ -791,7 +812,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    // War Room Council Endpoints (4-Brain Autonomous Sessions)
+    // Legacy War Room endpoints are fail-closed. Shared Case Bus is the sole source of truth.
+    if (reqPath.startsWith('/api/war-room/')) {
+      res.writeHead(410, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        status: 'error',
+        code: 'LEGACY_WAR_ROOM_DISABLED',
+        message: 'Use /api/cases. Legacy canned-consensus sessions are disabled.'
+      }));
+      return;
+    }
+
+    // Deprecated War Room handlers retained temporarily for stored-session compatibility.
     if (reqPath === '/api/war-room/sessions' && req.method === 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       const limit = Number(parsedUrl.searchParams.get('limit')) || 50;

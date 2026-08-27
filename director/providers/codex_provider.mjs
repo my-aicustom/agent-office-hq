@@ -3,9 +3,11 @@
 
 import { BaseProvider } from './base_provider.mjs';
 
+// Legacy class name retained for import compatibility. This adapter is OpenRouter,
+// not the OpenAI Codex product, and must be reported as such in telemetry.
 export class CodexProvider extends BaseProvider {
   constructor({ apiKey = null, baseUrl = 'https://openrouter.ai/api/v1', model = 'openai/gpt-4o-mini', fetchFn = globalThis.fetch } = {}) {
-    super('codex');
+    super('openrouter');
     this.apiKey = apiKey || process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY || '';
     this.baseUrl = baseUrl;
     this.model = model;
@@ -20,10 +22,10 @@ export class CodexProvider extends BaseProvider {
     return Boolean(this.getApiKey());
   }
 
-  async execute({ system = '', user = '', timeoutMs = 30000, maxOutputTokens = 300 } = {}) {
+  async execute({ system = '', user = '', jsonMode = false, timeoutMs = 30000, maxOutputTokens = 300 } = {}) {
     const key = this.getApiKey();
     if (!key) {
-      throw new Error('Codex / OpenRouter API key is not configured.');
+      throw new Error('OpenRouter API key is not configured.');
     }
 
     const start = Date.now();
@@ -45,7 +47,8 @@ export class CodexProvider extends BaseProvider {
           model: this.model,
           messages,
           temperature: 0.2,
-          max_tokens: maxOutputTokens || 300
+          max_tokens: maxOutputTokens || 300,
+          ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
         }),
         signal: controller.signal
       });
@@ -54,7 +57,7 @@ export class CodexProvider extends BaseProvider {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(`Codex API error: ${data.error?.message || res.status}`);
+        throw new Error(`OpenRouter API error: ${data.error?.message || res.status}`);
       }
 
       const text = data.choices?.[0]?.message?.content || '';
@@ -62,7 +65,7 @@ export class CodexProvider extends BaseProvider {
       this.recordMetrics(latency, true);
 
       return {
-        provider: 'codex',
+        provider: 'openrouter',
         model: this.model,
         text,
         latencyMs: latency,
@@ -71,6 +74,12 @@ export class CodexProvider extends BaseProvider {
           completionTokens: data.usage?.completion_tokens || 0,
           totalTokens: data.usage?.total_tokens || 0
         },
+        outboundEvidence: {
+          verified: true,
+          httpStatus: res.status,
+          apiHost: new URL(this.baseUrl).hostname,
+          requestId: data.id || null
+        },
         raw: data
       };
     } catch (err) {
@@ -78,7 +87,7 @@ export class CodexProvider extends BaseProvider {
       const latency = Date.now() - start;
       this.recordMetrics(latency, false);
       if (err.name === 'AbortError') {
-        throw new Error(`Codex timed out after ${timeoutMs}ms`);
+        throw new Error(`OpenRouter timed out after ${timeoutMs}ms`);
       }
       throw err;
     }

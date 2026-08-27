@@ -59,38 +59,62 @@ test('PersistentDedup survives simulated process restarts and matches canonical 
 
 test('QuorumEngine rejects fake consensus when all providers fail (NO_QUORUM)', () => {
   const qEngine = new QuorumEngine({ minLiveProviders: 2 });
+  const liveTurn = (speaker, providerKey) => ({
+    speaker,
+    providerKey,
+    status: 'SUCCESS',
+    message: 'Verified independent rationale with enough technical detail.',
+    outboundEvidence: { verified: true, httpStatus: 200, apiHost: 'provider.test' },
+    usage: { totalTokens: 20 },
+    vote: {
+      decision: 'APPROVE',
+      actionType: 'HTTP_HEALTH_CHECK',
+      rationale: 'Verified independent rationale with enough technical detail.',
+      acceptanceCriteria: ['Target returns HTTP 200.']
+    }
+  });
 
   // 1. Zero Live Providers
   const failedTurns = [
     { speaker: 'GEMINI', status: 'FAILED', message: '', error: '503 High Demand' },
     { speaker: 'CLAUDE', status: 'FAILED', message: '', error: 'Rate Limit Exceeded' },
-    { speaker: 'CODEX', status: 'FAILED', message: '', error: 'Connection Refused' }
+    { speaker: 'OPENROUTER', status: 'FAILED', message: '', error: 'Connection Refused' }
   ];
 
-  const evalFail = qEngine.evaluate({ turns: failedTurns, verifierResult: { passed: true } });
+  const evalFail = qEngine.evaluate({ turns: failedTurns, verifierResult: { passed: false, errors: ['No approvals.'] } });
   assert.equal(evalFail.status, QUORUM_STATES.NO_QUORUM);
   assert.equal(evalFail.verdict, 'QUORUM_REJECTED');
   assert.equal(evalFail.liveCount, 0);
 
-  // 2. Only 1 Live Provider -> DEGRADED
+  // 2. Only 1 Live Provider -> NO_QUORUM and never automatic execution
   const singleLiveTurns = [
-    { speaker: 'GEMINI', status: 'SUCCESS', message: 'Valid Gemini diagnosis with enough depth.' },
+    liveTurn('GEMINI', 'gemini'),
     { speaker: 'CLAUDE', status: 'FAILED', message: '', error: '500 Error' },
-    { speaker: 'CODEX', status: 'FAILED', message: '', error: '500 Error' }
+    { speaker: 'OPENROUTER', status: 'FAILED', message: '', error: '500 Error' }
   ];
 
-  const evalDegraded = qEngine.evaluate({ turns: singleLiveTurns, verifierResult: { passed: true } });
-  assert.equal(evalDegraded.status, QUORUM_STATES.DEGRADED);
+  const evalDegraded = qEngine.evaluate({
+    turns: singleLiveTurns,
+    verifierResult: { passed: false, approvedProviders: ['gemini'], requiredActionType: 'HTTP_HEALTH_CHECK' }
+  });
+  assert.equal(evalDegraded.status, QUORUM_STATES.NO_QUORUM);
   assert.equal(evalDegraded.liveCount, 1);
 
   // 3. Two Live Providers -> QUORUM_MET
   const twoLiveTurns = [
-    { speaker: 'GEMINI', status: 'SUCCESS', message: 'Valid Gemini diagnosis with enough depth.' },
-    { speaker: 'CLAUDE', status: 'SUCCESS', message: 'Valid Claude strategy with clear action plan.' },
-    { speaker: 'CODEX', status: 'FAILED', message: '', error: 'Codex timeout' }
+    liveTurn('GEMINI', 'gemini'),
+    liveTurn('CLAUDE', 'claude'),
+    { speaker: 'OPENROUTER', status: 'FAILED', message: '', error: 'OpenRouter timeout' }
   ];
 
-  const evalMet = qEngine.evaluate({ turns: twoLiveTurns, verifierResult: { passed: true } });
+  const evalMet = qEngine.evaluate({
+    turns: twoLiveTurns,
+    verifierResult: {
+      passed: true,
+      approvedProviders: ['gemini', 'claude'],
+      requiredActionType: 'HTTP_HEALTH_CHECK'
+    }
+  });
   assert.equal(evalMet.status, QUORUM_STATES.QUORUM_MET);
   assert.equal(evalMet.liveCount, 2);
 });
@@ -102,25 +126,31 @@ test('SharedCaseBus executes identity-pinned turns, meters tokens, and enforces 
 
   const mockGemini = {
     execute: async () => ({
+      provider: 'gemini',
       model: 'gemini-3.6-flash',
-      text: 'Root cause: High demand spike on model endpoint.',
-      usage: { promptTokens: 120, completionTokens: 40 }
+      text: JSON.stringify({ decision: 'APPROVE', actionType: 'HTTP_HEALTH_CHECK', rationale: 'Check the target endpoint and require a successful HTTP response.', risks: ['Transient outage'], acceptanceCriteria: ['Target returns HTTP 200.'] }),
+      usage: { promptTokens: 120, completionTokens: 40 },
+      outboundEvidence: { verified: true, httpStatus: 200, apiHost: 'gemini.test', requestId: 'gemini-request-1' }
     })
   };
 
   const mockClaude = {
     execute: async () => ({
+      provider: 'claude',
       model: 'claude-sonnet-4',
-      text: 'Strategy: Switch traffic to fallback writer and verify output.',
-      usage: { promptTokens: 150, completionTokens: 60 }
+      text: JSON.stringify({ decision: 'APPROVE', actionType: 'HTTP_HEALTH_CHECK', rationale: 'A read-only health request is safe and independently verifiable.', risks: ['False transient result'], acceptanceCriteria: ['Target returns HTTP 200.'] }),
+      usage: { promptTokens: 150, completionTokens: 60 },
+      outboundEvidence: { verified: true, httpStatus: 200, apiHost: 'claude.test', requestId: 'claude-request-1' }
     })
   };
 
   const mockCodex = {
     execute: async () => ({
-      model: 'codex-inspector-v1',
-      text: 'Verification: AST check clean. Safe to proceed.',
-      usage: { promptTokens: 100, completionTokens: 30 }
+      provider: 'openrouter',
+      model: 'openai/gpt-4o-mini',
+      text: JSON.stringify({ decision: 'APPROVE', actionType: 'HTTP_HEALTH_CHECK', rationale: 'The proposed read-only request has bounded and testable effects.', risks: ['Timeout'], acceptanceCriteria: ['Target returns HTTP 200.'] }),
+      usage: { promptTokens: 100, completionTokens: 30 },
+      outboundEvidence: { verified: true, httpStatus: 200, apiHost: 'openrouter.test', requestId: 'openrouter-request-1' }
     })
   };
 
@@ -137,7 +167,8 @@ test('SharedCaseBus executes identity-pinned turns, meters tokens, and enforces 
     type: 'INCIDENT:PIPELINE_ERROR',
     severity: 'CRITICAL',
     source: 'github_actions',
-    error: 'Gemini 503 Spike'
+    error: 'Gemini 503 Spike',
+    metadata: { requestedActionType: 'HTTP_HEALTH_CHECK', targetUrl: 'https://example.com/healthz' }
   };
 
   const caseResult = await caseBus.processIncident(sentryEvent);
@@ -153,8 +184,8 @@ test('SharedCaseBus executes identity-pinned turns, meters tokens, and enforces 
   assert.equal(caseResult.turns[0].actualModel, 'gemini-3.6-flash');
   assert.equal(caseResult.turns[1].speaker, 'CLAUDE');
   assert.equal(caseResult.turns[1].actualModel, 'claude-sonnet-4');
-  assert.equal(caseResult.turns[2].speaker, 'CODEX');
-  assert.equal(caseResult.turns[2].actualModel, 'codex-inspector-v1');
+  assert.equal(caseResult.turns[2].speaker, 'OPENROUTER');
+  assert.equal(caseResult.turns[2].actualModel, 'openai/gpt-4o-mini');
   assert.equal(caseResult.turns[3].speaker, 'HERMES');
 
   // Assert Task was enqueued with least privilege
@@ -166,7 +197,7 @@ test('SharedCaseBus executes identity-pinned turns, meters tokens, and enforces 
   cleanup();
 });
 
-test('ActiveTaskConsumer pulls QUEUED task from Ledger and executes to DONE', async () => {
+test('ActiveTaskConsumer marks DONE only when a real executor returns verifiable evidence', async () => {
   cleanup();
   const ledger = new TaskLedger({ filePath: TEST_LEDGER_FILE });
 
@@ -182,7 +213,14 @@ test('ActiveTaskConsumer pulls QUEUED task from Ledger and executes to DONE', as
 
   const consumer = new ActiveTaskConsumer({
     ledger,
-    workerId: 'test-worker-1'
+    workerId: 'test-worker-1',
+    executors: {
+      FAILOVER_BLOG_PUBLISH: async () => ({
+        actionType: 'FAILOVER_BLOG_PUBLISH',
+        status: 'VERIFIED',
+        evidence: [{ kind: 'DEPLOYMENT', deploymentId: 'deploy-123', targetUrl: 'https://example.com/article' }]
+      })
+    }
   });
 
   const completed = await consumer.processNextTask();
@@ -190,8 +228,25 @@ test('ActiveTaskConsumer pulls QUEUED task from Ledger and executes to DONE', as
   assert.ok(completed);
   assert.equal(completed.id, task.id);
   assert.equal(completed.state, TASK_STATES.DONE);
-  assert.equal(completed.output.action, 'BLOG_PUBLISHED_RECOVERY');
-  assert.ok(completed.evidence.executionLatencyMs >= 0);
+  assert.equal(completed.output.status, 'VERIFIED');
+  assert.equal(completed.output.evidence[0].deploymentId, 'deploy-123');
+  assert.ok(completed.evidence[0].executionLatencyMs >= 0);
+
+  cleanup();
+});
+
+test('ActiveTaskConsumer blocks mutating work when no real executor is configured', async () => {
+  cleanup();
+  const ledger = new TaskLedger({ filePath: TEST_LEDGER_FILE });
+  const { task } = ledger.createTask({
+    title: 'Must not fake a publish',
+    input: { actionType: 'FAILOVER_BLOG_PUBLISH' }
+  });
+  const consumer = new ActiveTaskConsumer({ ledger, workerId: 'test-worker-blocked' });
+  const result = await consumer.processNextTask();
+  assert.equal(result.id, task.id);
+  assert.equal(result.state, TASK_STATES.BLOCKED);
+  assert.equal(result.evidence[0].errorCode, 'ACTION_EXECUTOR_NOT_CONFIGURED');
 
   cleanup();
 });

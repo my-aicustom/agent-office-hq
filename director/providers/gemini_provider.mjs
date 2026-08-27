@@ -28,7 +28,7 @@ export class GeminiProvider extends BaseProvider {
     return Boolean(this.getApiKey());
   }
 
-  async execute({ system = '', user = '', jsonMode = false, timeoutMs = 25000, maxOutputTokens = 250 } = {}) {
+  async execute({ system = '', user = '', jsonMode = false, timeoutMs = 25000, maxOutputTokens = 1000 } = {}) {
     const key = this.getApiKey();
     if (!key) {
       throw new Error('Gemini API key is not configured.');
@@ -54,7 +54,7 @@ export class GeminiProvider extends BaseProvider {
             contents: [{ parts: [{ text: user }] }],
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: maxOutputTokens || 250
+              maxOutputTokens: maxOutputTokens || 1000
             }
           };
 
@@ -76,15 +76,26 @@ export class GeminiProvider extends BaseProvider {
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
             const latency = Date.now() - start;
             this.recordMetrics(latency, true);
+            const promptTokens = data.usageMetadata?.promptTokenCount || 0;
+            const visibleCompletionTokens = data.usageMetadata?.candidatesTokenCount || 0;
+            const thinkingTokens = data.usageMetadata?.thoughtsTokenCount || 0;
             return {
               provider: 'gemini',
               model,
               text,
               latencyMs: latency,
               usage: {
-                promptTokens: data.usageMetadata?.promptTokenCount || 0,
-                completionTokens: data.usageMetadata?.candidatesTokenCount || 0,
-                totalTokens: data.usageMetadata?.totalTokenCount || 0
+                promptTokens,
+                completionTokens: visibleCompletionTokens + thinkingTokens,
+                visibleCompletionTokens,
+                thinkingTokens,
+                totalTokens: data.usageMetadata?.totalTokenCount || (promptTokens + visibleCompletionTokens + thinkingTokens)
+              },
+              outboundEvidence: {
+                verified: true,
+                httpStatus: res.status,
+                apiHost: 'generativelanguage.googleapis.com',
+                requestId: data.responseId || null
               },
               raw: data
             };

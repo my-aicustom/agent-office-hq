@@ -8,10 +8,10 @@ import { ClaudeProvider } from './claude_provider.mjs';
 import { CodexProvider } from './codex_provider.mjs';
 
 const ROLE_PREFERENCES = {
-  [TASK_ROLES.SCOUT]: ['gemini', 'claude', 'codex'],
-  [TASK_ROLES.REASONER]: ['claude', 'gemini', 'codex'],
-  [TASK_ROLES.INSPECTOR]: ['codex', 'claude', 'gemini'],
-  [TASK_ROLES.SUPERVISOR]: ['gemini', 'claude', 'codex']
+  [TASK_ROLES.SCOUT]: ['gemini', 'claude', 'openrouter'],
+  [TASK_ROLES.REASONER]: ['claude', 'gemini', 'openrouter'],
+  [TASK_ROLES.INSPECTOR]: ['openrouter', 'claude', 'gemini'],
+  [TASK_ROLES.SUPERVISOR]: ['gemini', 'claude', 'openrouter']
 };
 
 export class ProviderRouter {
@@ -25,7 +25,7 @@ export class ProviderRouter {
     this.providers = new Map([
       ['gemini', geminiProvider],
       ['claude', claudeProvider],
-      ['codex', codexProvider]
+      ['openrouter', codexProvider]
     ]);
   }
 
@@ -40,7 +40,7 @@ export class ProviderRouter {
     jsonMode = false,
     timeoutMs = 30000
   } = {}) {
-    const defaultOrder = ROLE_PREFERENCES[role] || ['gemini', 'claude', 'codex'];
+    const defaultOrder = ROLE_PREFERENCES[role] || ['gemini', 'claude', 'openrouter'];
     const plan = preferredProvider
       ? [preferredProvider, ...defaultOrder.filter(p => p !== preferredProvider)]
       : defaultOrder;
