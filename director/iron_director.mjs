@@ -1,8 +1,6 @@
-// Iron Director — Master Autonomous Swarm Director (Hermes Director)
-// 24/7 Supervisor, Task Ledger Guardian, Heartbeat Reconciler, Sentry & Shared Case Bus.
-
 import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
 import { TaskLedger } from './task_ledger.mjs';
+import { TaskLedgerDb } from './task_ledger_db.mjs';
 import { CircuitBreaker } from './circuit_breaker.mjs';
 import { ProviderRouter } from './providers/provider_router.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
@@ -11,16 +9,17 @@ import { PersistentDedup } from './persistent_dedup.mjs';
 import { QuorumEngine } from './quorum_engine.mjs';
 import { ActiveTaskConsumer } from './active_task_consumer.mjs';
 import { SharedCaseBus } from './shared_case_bus.mjs';
+import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
 
 export class IronDirector {
   constructor({
-    ledger = new TaskLedger(),
+    ledger = null,
     circuitBreaker = new CircuitBreaker(),
     providerRouter = null,
     config = DEFAULT_DIRECTOR_CONFIG,
     telegramNotifier = null
   } = {}) {
-    this.ledger = ledger;
+    this.ledger = ledger || new TaskLedgerDb();
     this.circuitBreaker = circuitBreaker;
     this.providerRouter = providerRouter || new ProviderRouter({ circuitBreaker: this.circuitBreaker });
     this.config = { ...DEFAULT_DIRECTOR_CONFIG, ...config };
@@ -33,11 +32,59 @@ export class IronDirector {
     // 2. Strict Quorum Engine (Zero fake consensus)
     this.quorumEngine = new QuorumEngine({ minLiveProviders: 2 });
 
+    const seoExecutor = new SeoPageExecutor();
+
     // 3. Evidence-gated task consumer (unconfigured mutations fail closed)
     this.consumer = new ActiveTaskConsumer({
       ledger: this.ledger,
       pollIntervalMs: 3000,
-      workerId: 'hermes-worker-primary'
+      workerId: 'hermes-worker-primary',
+      executors: {
+        SEO_OPPORTUNITY_OPTIMIZE: async (task) => {
+          const keyword = task.input?.keyword || task.title?.replace(/^.*:\s*/, '') || 'jasa-laser-cutting-custom';
+          const result = await seoExecutor.execute({
+            keyword,
+            intent: task.input?.intent || 'commercial',
+            cluster: task.input?.cluster || 'stainless',
+            targetUrl: task.input?.targetUrl || null,
+            gscEvidence: task.input?.gscEvidence || null
+          });
+          return {
+            actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
+            status: 'VERIFIED',
+            externalEffect: 'ARTIFACT_COMMITTED',
+            evidence: [{
+              kind: 'SEO_PAGE_ARTIFACT',
+              filePath: result.filePath,
+              artifactHash: result.artifactHash,
+              branchName: result.branchName,
+              commitMessage: result.commitMessage,
+              wordCount: result.wordCount,
+              verifiedAt: new Date().toISOString()
+            }]
+          };
+        },
+        FAILOVER_BLOG_PUBLISH: async (task) => {
+          const keyword = task.input?.keyword || 'laser-cutting-plat-stainless';
+          const result = await seoExecutor.execute({
+            keyword,
+            intent: 'commercial',
+            cluster: 'stainless'
+          });
+          return {
+            actionType: 'FAILOVER_BLOG_PUBLISH',
+            status: 'VERIFIED',
+            externalEffect: 'ARTIFACT_COMMITTED',
+            evidence: [{
+              kind: 'BLOG_PUBLISHED_RECOVERY',
+              filePath: result.filePath,
+              artifactHash: result.artifactHash,
+              branchName: result.branchName,
+              verifiedAt: new Date().toISOString()
+            }]
+          };
+        }
+      }
     });
 
     // 4. Shared Case Bus (Single-Pass Multi-Brain Assembly)

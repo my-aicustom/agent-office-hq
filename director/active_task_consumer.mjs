@@ -1,8 +1,6 @@
-// Iron Director — Active Task Worker Consumer
-// Drains QUEUED tasks and marks DONE only when an executor returns verifiable evidence.
-
 import { TASK_STATES } from './constants.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
+import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
 import crypto from 'crypto';
 
 const MUTATING_ACTIONS = [
@@ -35,8 +33,8 @@ export class ActiveTaskConsumer {
 
   _registerDefaultHandlers() {
     for (const actionType of MUTATING_ACTIONS) {
-      const executor = this.executors[actionType];
-      if (typeof executor === 'function') this.registerHandler(actionType, executor);
+      const customExecutor = this.executors[actionType];
+      if (typeof customExecutor === 'function') this.registerHandler(actionType, customExecutor);
     }
 
     // Built-in read-only field executor. It produces independently checkable HTTP evidence.
@@ -98,23 +96,33 @@ export class ActiveTaskConsumer {
     let activeTaskId = null;
 
     try {
-      const queuedTasks = this.ledger.listTasks({ state: TASK_STATES.QUEUED, limit: 1 });
-      if (queuedTasks.length === 0) {
-        this.isProcessing = false;
-        return null;
+      let task = null;
+      if (typeof this.ledger.claimNextQueuedTask === 'function') {
+        task = this.ledger.claimNextQueuedTask({ workerId: this.workerId, leaseTtlMs: 60000 });
+        if (!task) {
+          this.isProcessing = false;
+          return null;
+        }
+      } else {
+        const queuedTasks = this.ledger.listTasks({ state: TASK_STATES.QUEUED, limit: 1 });
+        if (queuedTasks.length === 0) {
+          this.isProcessing = false;
+          return null;
+        }
+        task = queuedTasks[0];
+        if (typeof this.ledger.claimTask === 'function') {
+          this.ledger.claimTask(task.id, this.workerId);
+        }
       }
 
-      const task = queuedTasks[0];
       const taskId = task.id;
       activeTaskId = taskId;
-
-      // 1. Claim Lease
-      this.ledger.claimTask(taskId, this.workerId);
 
       // 2. Mark RUNNING
       this.ledger.transition(taskId, TASK_STATES.RUNNING, {
         actor: this.workerId,
-        reason: `ActiveTaskConsumer picked up task from ledger`
+        reason: `ActiveTaskConsumer picked up task from ledger`,
+        fencingToken: task.fencingToken
       });
 
       // 3. Determine handler
