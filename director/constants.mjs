@@ -7,7 +7,11 @@ export const TASK_STATES = Object.freeze({
   CLAIMED: 'CLAIMED',         // Acquired by a worker/subagent with active lease
   RUNNING: 'RUNNING',         // Active execution in progress
   VERIFYING: 'VERIFYING',     // Quality gate & deterministic checks
-  DONE: 'DONE',               // Verified passed & committed/completed
+  ARTIFACT_READY: 'ARTIFACT_READY', // Verified local artifact, not yet committed/published
+  PR_OPEN: 'PR_OPEN',         // Remote pull request exists and awaits CI/review
+  AWAITING_REVIEW: 'AWAITING_REVIEW', // Human/policy approval is still required
+  DEPLOYED: 'DEPLOYED',       // Deployment completed; production read-back pending
+  DONE: 'DONE',               // Production effect independently verified
   RETRYING: 'RETRYING',       // Transient error, backoff active
   HANDOFF: 'HANDOFF',         // Primary model failed, transferred to backup
   BLOCKED: 'BLOCKED',         // Requires external fix or all providers down

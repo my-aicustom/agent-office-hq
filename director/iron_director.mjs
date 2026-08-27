@@ -43,6 +43,7 @@ export class IronDirector {
         SEO_OPPORTUNITY_OPTIMIZE: async (task) => {
           const keyword = task.input?.keyword || task.title?.replace(/^.*:\s*/, '') || 'jasa-laser-cutting-custom';
           const result = await seoExecutor.execute({
+            taskId: task.id,
             keyword,
             intent: task.input?.intent || 'commercial',
             cluster: task.input?.cluster || 'stainless',
@@ -52,34 +53,14 @@ export class IronDirector {
           return {
             actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
             status: 'VERIFIED',
-            externalEffect: 'ARTIFACT_COMMITTED',
+            nextState: TASK_STATES.ARTIFACT_READY,
+            externalEffect: 'LOCAL_DRAFT_CREATED',
             evidence: [{
               kind: 'SEO_PAGE_ARTIFACT',
               filePath: result.filePath,
               artifactHash: result.artifactHash,
-              branchName: result.branchName,
-              commitMessage: result.commitMessage,
+              git: result.git,
               wordCount: result.wordCount,
-              verifiedAt: new Date().toISOString()
-            }]
-          };
-        },
-        FAILOVER_BLOG_PUBLISH: async (task) => {
-          const keyword = task.input?.keyword || 'laser-cutting-plat-stainless';
-          const result = await seoExecutor.execute({
-            keyword,
-            intent: 'commercial',
-            cluster: 'stainless'
-          });
-          return {
-            actionType: 'FAILOVER_BLOG_PUBLISH',
-            status: 'VERIFIED',
-            externalEffect: 'ARTIFACT_COMMITTED',
-            evidence: [{
-              kind: 'BLOG_PUBLISHED_RECOVERY',
-              filePath: result.filePath,
-              artifactHash: result.artifactHash,
-              branchName: result.branchName,
               verifiedAt: new Date().toISOString()
             }]
           };
@@ -128,7 +109,7 @@ export class IronDirector {
     preferredProvider = null
   } = {}) {
     // 1. Task Ledger Registration & Idempotency Gate
-    const { task, isDuplicate } = this.ledger.createTask({
+    const registration = this.ledger.createTask({
       title,
       role,
       owner,
@@ -137,6 +118,8 @@ export class IronDirector {
       idempotencyKey,
       maxAttempts: this.config.maxRetriesPerModel
     });
+    const task = registration.task;
+    const isDuplicate = registration.isDuplicate ?? registration.created === false;
 
     if (isDuplicate && (task.state === TASK_STATES.DONE || task.state === TASK_STATES.RUNNING)) {
       console.log(`[IronDirector] Idempotency Hit: Returning active/completed task '${task.id}' [${task.state}]`);
@@ -146,12 +129,14 @@ export class IronDirector {
     const taskId = task.id;
 
     // 2. Claim Lease
-    this.ledger.claimTask(taskId, owner);
+    const leasedTask = this.ledger.claimTask(taskId, owner);
+    const fencingToken = leasedTask?.fencingToken ?? null;
 
     // 3. Mark RUNNING
     this.ledger.transition(taskId, TASK_STATES.RUNNING, {
       actor: owner,
-      reason: `Execution started by ${owner}`
+      reason: `Execution started by ${owner}`,
+      fencingToken
     });
 
     let currentProvider = preferredProvider;
@@ -161,7 +146,18 @@ export class IronDirector {
     // 4. Execution & Multi-Model Handoff Loop
     while (handoffs <= this.config.maxHandoffs) {
       try {
-        this.ledger.heartbeat(taskId, owner);
+        const currentTask = this.ledger.getTask(taskId);
+        if (currentTask?.state === TASK_STATES.HANDOFF || currentTask?.state === TASK_STATES.RETRYING) {
+          this.ledger.transition(taskId, TASK_STATES.RUNNING, {
+            actor: owner,
+            reason: 'Resuming execution after provider handoff',
+            fencingToken
+          });
+        }
+        this.ledger.heartbeat(taskId, owner, fencingToken === null ? undefined : {
+          fencingToken,
+          leaseTtlMs: this.config.heartbeatTimeoutMs
+        });
 
         const prompt = userPrompt || (typeof input === 'string' ? input : JSON.stringify(input));
         const res = await this.providerRouter.execute({
@@ -186,7 +182,8 @@ export class IronDirector {
           actor: 'quality-gate',
           reason: 'Checking output against deterministic quality gate',
           activeProvider: res.provider,
-          evidence: { routeTrail: res.routeTrail, latencyMs: res.latencyMs }
+          evidence: { routeTrail: res.routeTrail, latencyMs: res.latencyMs },
+          fencingToken
         });
 
         const verification = VerifierGate.verifyArtifact(parsed, {
@@ -204,7 +201,8 @@ export class IronDirector {
           actor: 'director',
           reason: 'Quality gate verified successfully',
           output: resultArtifact,
-          activeProvider: res.provider
+          activeProvider: res.provider,
+          fencingToken
         });
 
         console.log(`[IronDirector] Task '${taskId}' completed successfully via provider '${res.provider}'.`);
@@ -219,7 +217,8 @@ export class IronDirector {
           this.ledger.transition(taskId, TASK_STATES.HANDOFF, {
             actor: 'director',
             reason: `Failover handoff ${handoffs} triggered: ${errMsg}`,
-            evidence: { error: errMsg, failedProvider: currentProvider }
+            evidence: { error: errMsg, failedProvider: currentProvider },
+            fencingToken
           });
           currentProvider = null; // Let router pick next available
         } else {
@@ -227,7 +226,8 @@ export class IronDirector {
           const escalatedTask = this.ledger.transition(taskId, TASK_STATES.ESCALATED, {
             actor: 'director',
             reason: `Task exhausted all ${this.config.maxHandoffs} handoffs. Final error: ${errMsg}`,
-            evidence: { finalError: errMsg }
+            evidence: { finalError: errMsg },
+            fencingToken
           });
 
           // Trigger Sentry pipeline alert
@@ -252,6 +252,14 @@ export class IronDirector {
    */
   reconcile() {
     const stalledEvents = this.sentry.scanStalledWorkers(this.config.heartbeatTimeoutMs);
+    if (typeof this.ledger.recoverExpiredLeases === 'function') {
+      const recovered = this.ledger.recoverExpiredLeases();
+      return {
+        reconciledCount: recovered.length,
+        stalledEventsCount: stalledEvents.length,
+        tasks: recovered.map(task => task.id)
+      };
+    }
     const stuck = this.ledger.getStuckTasks(this.config.heartbeatTimeoutMs);
 
     for (const t of stuck) {

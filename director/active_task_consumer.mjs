@@ -1,6 +1,5 @@
 import { TASK_STATES } from './constants.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
-import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
 import crypto from 'crypto';
 
 const MUTATING_ACTIONS = [
@@ -94,6 +93,7 @@ export class ActiveTaskConsumer {
     if (!this.ledger || this.isProcessing) return null;
     this.isProcessing = true;
     let activeTaskId = null;
+    let activeFencingToken = null;
 
     try {
       let task = null;
@@ -117,12 +117,13 @@ export class ActiveTaskConsumer {
 
       const taskId = task.id;
       activeTaskId = taskId;
+      activeFencingToken = task.fencingToken;
 
       // 2. Mark RUNNING
       this.ledger.transition(taskId, TASK_STATES.RUNNING, {
         actor: this.workerId,
         reason: `ActiveTaskConsumer picked up task from ledger`,
-        fencingToken: task.fencingToken
+        fencingToken: activeFencingToken
       });
 
       // 3. Determine handler
@@ -135,16 +136,42 @@ export class ActiveTaskConsumer {
       }
 
       const startTime = Date.now();
-      this.ledger.heartbeat(taskId, this.workerId);
+      const leaseTtlMs = 60000;
+      if (typeof this.ledger.heartbeat === 'function') {
+        const heartbeatAccepted = this.ledger.heartbeat(taskId, this.workerId, {
+          fencingToken: activeFencingToken,
+          leaseTtlMs
+        });
+        if (!heartbeatAccepted) {
+          throw new Error(`Worker lease was lost before execution for task '${taskId}'.`);
+        }
+      }
 
       // 4. Execute Work
-      const executionResult = await handler(task);
+      let heartbeatTimer = null;
+      if (typeof this.ledger.heartbeat === 'function') {
+        heartbeatTimer = setInterval(() => {
+          try {
+            this.ledger.heartbeat(taskId, this.workerId, {
+              fencingToken: activeFencingToken,
+              leaseTtlMs
+            });
+          } catch {}
+        }, Math.floor(leaseTtlMs / 3));
+      }
+      let executionResult;
+      try {
+        executionResult = await handler(task);
+      } finally {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+      }
       const latencyMs = Date.now() - startTime;
 
       // 5. Verification Gate
       this.ledger.transition(taskId, TASK_STATES.VERIFYING, {
         actor: 'quality-gate',
-        reason: 'Validating execution output integrity'
+        reason: 'Validating execution output integrity',
+        fencingToken: activeFencingToken
       });
 
       const verification = VerifierGate.verifyArtifact(executionResult, {
@@ -162,12 +189,38 @@ export class ActiveTaskConsumer {
         throw new Error(`Task output failed quality gate: ${verification.errors.join('; ')}`);
       }
 
-      // 6. Mark DONE
-      const completedTask = this.ledger.transition(taskId, TASK_STATES.DONE, {
+      const nextState = executionResult?.nextState || TASK_STATES.DONE;
+      const allowedPostVerificationStates = new Set([
+        TASK_STATES.ARTIFACT_READY,
+        TASK_STATES.PR_OPEN,
+        TASK_STATES.AWAITING_REVIEW,
+        TASK_STATES.DEPLOYED,
+        TASK_STATES.DONE
+      ]);
+      if (!allowedPostVerificationStates.has(nextState)) {
+        throw new Error(`Executor requested unsupported post-verification state '${nextState}'.`);
+      }
+      if (MUTATING_ACTIONS.includes(actionType) && nextState === TASK_STATES.DONE) {
+        const productionEvidence = executionResult.evidence.some(item =>
+          item?.kind === 'PRODUCTION_HTTP_VERIFICATION'
+          && item?.verified === true
+          && Number(item?.httpStatus) >= 200
+          && Number(item?.httpStatus) < 300
+        );
+        if (!productionEvidence) {
+          throw new Error(`Mutating action '${actionType}' cannot become DONE without verified production HTTP evidence.`);
+        }
+      }
+
+      // 6. Advance only to the evidence-backed lifecycle state.
+      const completedTask = this.ledger.transition(taskId, nextState, {
         actor: this.workerId,
-        reason: 'Task executed to completion and verified by Quality Gate',
+        reason: nextState === TASK_STATES.DONE
+          ? 'Task executed to completion and verified by Quality Gate'
+          : `Executor produced verified evidence for lifecycle state ${nextState}`,
         output: executionResult,
-        evidence: { executionLatencyMs: latencyMs, workerId: this.workerId }
+        evidence: { executionLatencyMs: latencyMs, workerId: this.workerId },
+        fencingToken: activeFencingToken
       });
 
       const logEntry = {
@@ -179,18 +232,24 @@ export class ActiveTaskConsumer {
       this.executionHistory.unshift(logEntry);
       if (this.executionHistory.length > 100) this.executionHistory.pop();
 
-      console.log(`[ActiveTaskConsumer] Completed task '${taskId}' in ${latencyMs}ms.`);
+      console.log(`[ActiveTaskConsumer] Advanced task '${taskId}' to '${nextState}' in ${latencyMs}ms.`);
       this.isProcessing = false;
       return completedTask;
     } catch (err) {
       console.error(`[ActiveTaskConsumer] Error processing task: ${err.message}`);
-      if (activeTaskId && this.ledger.getTask(activeTaskId)) {
+      const currentTask = activeTaskId ? this.ledger.getTask(activeTaskId) : null;
+      if (currentTask && currentTask.fencingToken === activeFencingToken) {
         const blocked = err.code === 'ACTION_EXECUTOR_NOT_CONFIGURED';
-        this.ledger.transition(activeTaskId, blocked ? TASK_STATES.BLOCKED : TASK_STATES.FAILED, {
-          actor: this.workerId,
-          reason: err.message,
-          evidence: { errorCode: err.code || 'EXECUTION_FAILED', workerId: this.workerId }
-        });
+        try {
+          this.ledger.transition(activeTaskId, blocked ? TASK_STATES.BLOCKED : TASK_STATES.FAILED, {
+            actor: this.workerId,
+            reason: err.message,
+            evidence: { errorCode: err.code || 'EXECUTION_FAILED', workerId: this.workerId },
+            fencingToken: activeFencingToken
+          });
+        } catch (transitionError) {
+          console.error(`[ActiveTaskConsumer] Could not record failure for '${activeTaskId}': ${transitionError.message}`);
+        }
         this.isProcessing = false;
         return this.ledger.getTask(activeTaskId);
       }

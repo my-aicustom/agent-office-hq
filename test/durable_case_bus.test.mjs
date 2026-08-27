@@ -218,7 +218,13 @@ test('ActiveTaskConsumer marks DONE only when a real executor returns verifiable
       FAILOVER_BLOG_PUBLISH: async () => ({
         actionType: 'FAILOVER_BLOG_PUBLISH',
         status: 'VERIFIED',
-        evidence: [{ kind: 'DEPLOYMENT', deploymentId: 'deploy-123', targetUrl: 'https://example.com/article' }]
+        evidence: [{
+          kind: 'PRODUCTION_HTTP_VERIFICATION',
+          deploymentId: 'deploy-123',
+          targetUrl: 'https://example.com/article',
+          httpStatus: 200,
+          verified: true
+        }]
       })
     }
   });

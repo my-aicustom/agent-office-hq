@@ -58,6 +58,7 @@ export class SeoPageExecutor {
    * and optional real Git branch, commit, and PR creation.
    */
   async execute({
+    taskId = null,
     keyword,
     intent = 'commercial',
     cluster = 'stainless',
@@ -169,7 +170,10 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
     const filePath = path.join(this.outputDir, filename);
     fs.writeFileSync(filePath, markdownContent, 'utf8');
 
-    const branchName = `seo/optimize-${slug}`;
+    const taskSuffix = taskId
+      ? `-${String(taskId).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(-32)}`
+      : '';
+    const branchName = `seo/optimize-${slug.slice(0, 80)}${taskSuffix}`;
     const commitMessage = `feat(seo): generate optimized landing draft for keyword '${keyword}' [hash:${artifactHash.slice(0, 8)}]`;
 
     // 6. Real Git Operations (Executed only when enabled)
@@ -235,7 +239,8 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
                 '--title', `feat(seo): ${keyword} landing article`,
                 '--body', `Automated SEO Landing draft for keyword \`${keyword}\`.\nArtifact SHA-256: \`${artifactHash}\`\nValidated by VerifierGate.`,
                 '--head', branchName,
-                '--base', originalBranch
+                '--base', originalBranch,
+                '--draft'
               ]);
             } catch (prErr) {
               gitResult.error = prErr.message;

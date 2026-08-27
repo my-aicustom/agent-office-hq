@@ -89,11 +89,13 @@ jobs:
 
             # Recreate Docker container
             echo "🔄 [CI/CD] Recreating Docker container agent-office-hq..."
-            docker stop agent-office-hq 2>/dev/null || true
-            docker rm agent-office-hq 2>/dev/null || true
+            candidate_name="agent-office-hq-candidate"
+            rollback_name="agent-office-hq-rollback"
+            docker rm -f "$candidate_name" 2>/dev/null || true
+            docker rm -f "$rollback_name" 2>/dev/null || true
 
-            # Run Docker container cleanly
-            docker run -d --name agent-office-hq --restart always --network coolify \
+            # Start the new release without terminating the current container.
+            docker run -d --name "$candidate_name" --restart no --network coolify \
               -v /opt/agent-office-hq:/app -w /app \
               -e PORT=3333 \
               -e APP_COMMIT_SHA="${{ github.sha }}" \
@@ -105,18 +107,31 @@ jobs:
               -e TRUST_PROXY=true \
               --health-cmd="wget -qO- http://127.0.0.1:3333/healthz >/dev/null || exit 1" \
               --health-interval=15s --health-timeout=5s --health-retries=3 \
-              node:20-alpine node server.mjs
+              node:24-alpine node server.mjs
 
-            for attempt in 1 2 3 4 5 6; do
-              if docker exec agent-office-hq wget -qO- http://127.0.0.1:3333/healthz >/dev/null; then
-                echo "Container readiness check passed."
-                exit 0
+            candidate_ready=false
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if docker exec "$candidate_name" wget -qO- http://127.0.0.1:3333/healthz >/dev/null; then
+                candidate_ready=true
+                break
               fi
               sleep 2
             done
-            docker logs --tail 50 agent-office-hq
-            echo "Container failed readiness check."
-            exit 1
+            if [ "$candidate_ready" != "true" ]; then
+              docker logs --tail 100 "$candidate_name" || true
+              docker rm -f "$candidate_name" || true
+              echo "Candidate failed readiness; existing production container was preserved."
+              exit 1
+            fi
+
+            if docker container inspect agent-office-hq >/dev/null 2>&1; then
+              docker rename agent-office-hq "$rollback_name"
+              docker stop "$rollback_name" >/dev/null
+            fi
+            docker rename "$candidate_name" agent-office-hq
+            docker update --restart always agent-office-hq >/dev/null
+            docker exec agent-office-hq wget -qO- http://127.0.0.1:3333/healthz >/dev/null
+            echo "Candidate promoted; rollback container retained until public verification passes."
 
       - name: Verify public production health
         env:
@@ -124,3 +139,31 @@ jobs:
         run: |
           response="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://seo.tepatlaser.com/healthz)"
           node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="READY" || body.commitSha!==process.env.EXPECTED_SHA || !body.providers?.gemini || !body.providers?.openrouter) process.exit(1);' "$response"
+
+      - name: Remove rollback container after successful verification
+        if: success()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: docker rm -f agent-office-hq-rollback 2>/dev/null || true
+
+      - name: Restore previous container when promotion verification fails
+        if: failure()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            set -eu
+            if docker container inspect agent-office-hq-rollback >/dev/null 2>&1; then
+              docker rm -f agent-office-hq 2>/dev/null || true
+              docker rename agent-office-hq-rollback agent-office-hq
+              docker update --restart always agent-office-hq >/dev/null
+              docker start agent-office-hq >/dev/null
+              echo "Previous production container restored."
+            fi

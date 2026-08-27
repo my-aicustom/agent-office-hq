@@ -23,7 +23,7 @@ export class TaskLedgerDb {
   _initSchema() {
     this.db.exec(`
       PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
+      PRAGMA synchronous = FULL;
       PRAGMA busy_timeout = 5000;
 
       CREATE TABLE IF NOT EXISTS tasks (
@@ -51,7 +51,50 @@ export class TaskLedgerDb {
       CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(state);
       CREATE INDEX IF NOT EXISTS idx_tasks_idempotency ON tasks(idempotency_key);
       CREATE INDEX IF NOT EXISTS idx_tasks_lease ON tasks(state, lease_expires_at);
+
+      CREATE TABLE IF NOT EXISTS task_events (
+        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        from_state TEXT,
+        to_state TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        reason TEXT,
+        evidence TEXT,
+        fencing_token INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, event_id);
     `);
+  }
+
+  _transaction(fn) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = fn();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  _insertEvent(taskId, entry, fencingToken) {
+    this.db.prepare(`
+      INSERT INTO task_events (
+        task_id, timestamp, from_state, to_state, actor, reason, evidence, fencing_token
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      taskId,
+      entry.timestamp,
+      entry.fromState || null,
+      entry.toState,
+      entry.actor,
+      entry.reason || '',
+      entry.evidence ? JSON.stringify(entry.evidence) : null,
+      fencingToken
+    );
   }
 
   _hydrate(row) {
@@ -92,16 +135,17 @@ export class TaskLedgerDb {
       throw new Error('Task title is required.');
     }
 
-    if (idempotencyKey) {
-      const existingRow = this.db.prepare(`SELECT * FROM tasks WHERE idempotency_key = ?`).get(idempotencyKey);
-      if (existingRow) {
-        return { task: this._hydrate(existingRow), created: false };
+    return this._transaction(() => {
+      if (idempotencyKey) {
+        const existingRow = this.db.prepare(`SELECT * FROM tasks WHERE idempotency_key = ?`).get(idempotencyKey);
+        if (existingRow) {
+          return { task: this._hydrate(existingRow), created: false };
+        }
       }
-    }
 
-    const taskId = id || `task-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
-    const timestamp = new Date().toISOString();
-    const initialState = TASK_STATES.QUEUED;
+      const taskId = id || `task-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+      const timestamp = new Date().toISOString();
+      const initialState = TASK_STATES.QUEUED;
 
     const initialHistory = [{
       timestamp,
@@ -143,8 +187,11 @@ export class TaskLedgerDb {
       timestamp
     );
 
-    const created = this.getTask(taskId);
-    return { task: created, created: true };
+      this._insertEvent(taskId, initialHistory[0], 1);
+
+      const created = this.getTask(taskId);
+      return { task: created, created: true };
+    });
   }
 
   getTask(id) {
@@ -156,7 +203,10 @@ export class TaskLedgerDb {
   /**
    * Updates worker heartbeat and extends lease expiry.
    */
-  heartbeat(taskId, workerId, leaseTtlMs = 60000) {
+  heartbeat(taskId, workerId, { fencingToken, leaseTtlMs = 60000 } = {}) {
+    if (!Number.isInteger(fencingToken) || fencingToken < 1) {
+      throw new Error('A valid fencingToken is required for heartbeat.');
+    }
     const nowMs = Date.now();
     const leaseExpiresAt = nowMs + leaseTtlMs;
     const nowIso = new Date(nowMs).toISOString();
@@ -164,9 +214,12 @@ export class TaskLedgerDb {
       UPDATE tasks SET
         lease_expires_at = ?,
         updated_at = ?
-      WHERE id = ? AND (lease_owner = ? OR owner = ?)
+      WHERE id = ?
+        AND lease_owner = ?
+        AND fencing_token = ?
+        AND state IN ('CLAIMED', 'RUNNING')
     `);
-    const res = stmt.run(leaseExpiresAt, nowIso, taskId, workerId, workerId);
+    const res = stmt.run(leaseExpiresAt, nowIso, taskId, workerId, fencingToken);
     return res.changes > 0;
   }
 
@@ -174,25 +227,52 @@ export class TaskLedgerDb {
    * Claims a specific task ID with lease lock.
    */
   claimTask(taskId, workerId, leaseTtlMs = 60000) {
-    const nowMs = Date.now();
-    const leaseExpiresAt = nowMs + leaseTtlMs;
-    const nowIso = new Date(nowMs).toISOString();
-    const current = this.getTask(taskId);
-    if (!current) return null;
-    const newFencingToken = current.fencingToken + 1;
-    const stmt = this.db.prepare(`
-      UPDATE tasks SET
-        state = 'CLAIMED',
-        lease_owner = ?,
-        lease_expires_at = ?,
-        fencing_token = ?,
-        owner = ?,
-        updated_at = ?
-      WHERE id = ? AND (state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at < ?))
-    `);
-    const res = stmt.run(workerId, leaseExpiresAt, newFencingToken, workerId, nowIso, taskId, nowMs);
-    if (res.changes === 0) return null;
-    return this.getTask(taskId);
+    if (!workerId) throw new Error('workerId is required to claim a task.');
+    return this._transaction(() => {
+      const nowMs = Date.now();
+      const leaseExpiresAt = nowMs + leaseTtlMs;
+      const nowIso = new Date(nowMs).toISOString();
+      const current = this.getTask(taskId);
+      if (!current) return null;
+      const newFencingToken = current.fencingToken + 1;
+      const historyEntry = {
+        timestamp: nowIso,
+        fromState: current.state,
+        toState: TASK_STATES.CLAIMED,
+        actor: workerId,
+        reason: current.state === TASK_STATES.CLAIMED ? 'Expired lease reclaimed by worker' : 'Task claimed by worker',
+        evidence: { leaseTtlMs, fencingToken: newFencingToken }
+      };
+      const stmt = this.db.prepare(`
+        UPDATE tasks SET
+          state = 'CLAIMED',
+          lease_owner = ?,
+          lease_expires_at = ?,
+          fencing_token = ?,
+          owner = ?,
+          history = ?,
+          claimed_at = COALESCE(claimed_at, ?),
+          updated_at = ?
+        WHERE id = ?
+          AND fencing_token = ?
+          AND (state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at < ?))
+      `);
+      const res = stmt.run(
+        workerId,
+        leaseExpiresAt,
+        newFencingToken,
+        workerId,
+        JSON.stringify([...current.history, historyEntry]),
+        nowIso,
+        nowIso,
+        taskId,
+        current.fencingToken,
+        nowMs
+      );
+      if (res.changes === 0) return null;
+      this._insertEvent(taskId, historyEntry, newFencingToken);
+      return this.getTask(taskId);
+    });
   }
 
   /**
@@ -200,169 +280,191 @@ export class TaskLedgerDb {
    */
   claimNextQueuedTask({ workerId, leaseTtlMs = 60000 }) {
     if (!workerId) throw new Error('workerId is required to claim a task.');
-    const nowMs = Date.now();
-    const leaseExpiresAt = nowMs + leaseTtlMs;
-    const nowIso = new Date(nowMs).toISOString();
+    return this._transaction(() => {
+      const nowMs = Date.now();
+      const leaseExpiresAt = nowMs + leaseTtlMs;
+      const nowIso = new Date(nowMs).toISOString();
+      const candidateRow = this.db.prepare(`
+        SELECT * FROM tasks
+        WHERE state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at > 0 AND lease_expires_at < ?)
+        ORDER BY created_at ASC
+        LIMIT 1
+      `).get(nowMs);
+      if (!candidateRow) return null;
 
-    // Step 1: Find candidate
-    const candidateRow = this.db.prepare(`
-      SELECT * FROM tasks
-      WHERE state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at > 0 AND lease_expires_at < ?)
-      ORDER BY created_at ASC
-      LIMIT 1
-    `).get(nowMs);
-
-    if (!candidateRow) return null;
-
-    const candidate = this._hydrate(candidateRow);
-    const newFencingToken = candidate.fencingToken + 1;
-
-    const historyEntry = {
-      timestamp: nowIso,
-      fromState: candidate.state,
-      toState: TASK_STATES.CLAIMED,
-      actor: workerId,
-      reason: candidate.state === TASK_STATES.CLAIMED ? 'Expired lease reclaimed by worker' : 'Task claimed by worker',
-      evidence: { leaseTtlMs, fencingToken: newFencingToken }
-    };
-    const updatedHistory = [...candidate.history, historyEntry];
-
-    // Step 2: Atomic update with conditional state
-    const updateStmt = this.db.prepare(`
-      UPDATE tasks SET
-        state = 'CLAIMED',
-        lease_owner = ?,
-        lease_expires_at = ?,
-        fencing_token = ?,
-        owner = ?,
-        history = ?,
-        claimed_at = COALESCE(claimed_at, ?),
-        updated_at = ?
-      WHERE id = ? AND (state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at < ?))
-    `);
-
-    const result = updateStmt.run(
-      workerId,
-      leaseExpiresAt,
-      newFencingToken,
-      workerId,
-      JSON.stringify(updatedHistory),
-      nowIso,
-      nowIso,
-      candidate.id,
-      nowMs
-    );
-
-    if (result.changes === 0) {
-      // Race condition lost to another worker
-      return null;
-    }
-
-    return this.getTask(candidate.id);
+      const candidate = this._hydrate(candidateRow);
+      const newFencingToken = candidate.fencingToken + 1;
+      const historyEntry = {
+        timestamp: nowIso,
+        fromState: candidate.state,
+        toState: TASK_STATES.CLAIMED,
+        actor: workerId,
+        reason: candidate.state === TASK_STATES.CLAIMED ? 'Expired lease reclaimed by worker' : 'Task claimed by worker',
+        evidence: { leaseTtlMs, fencingToken: newFencingToken }
+      };
+      const updateStmt = this.db.prepare(`
+        UPDATE tasks SET
+          state = 'CLAIMED',
+          lease_owner = ?,
+          lease_expires_at = ?,
+          fencing_token = ?,
+          owner = ?,
+          history = ?,
+          claimed_at = COALESCE(claimed_at, ?),
+          updated_at = ?
+        WHERE id = ?
+          AND fencing_token = ?
+          AND (state = 'QUEUED' OR (state = 'CLAIMED' AND lease_expires_at < ?))
+      `);
+      const result = updateStmt.run(
+        workerId,
+        leaseExpiresAt,
+        newFencingToken,
+        workerId,
+        JSON.stringify([...candidate.history, historyEntry]),
+        nowIso,
+        nowIso,
+        candidate.id,
+        candidate.fencingToken,
+        nowMs
+      );
+      if (result.changes === 0) return null;
+      this._insertEvent(candidate.id, historyEntry, newFencingToken);
+      return this.getTask(candidate.id);
+    });
   }
 
   /**
    * Deterministic transition with fencing token protection.
    */
   transition(taskId, nextState, { actor = 'system', reason = '', output = null, evidence = null, fencingToken = null } = {}) {
-    const current = this.getTask(taskId);
-    if (!current) {
-      throw new Error(`Task '${taskId}' not found in SQLite Ledger.`);
-    }
+    return this._transaction(() => {
+      const current = this.getTask(taskId);
+      if (!current) {
+        throw new Error(`Task '${taskId}' not found in SQLite Ledger.`);
+      }
+      if (fencingToken !== null && fencingToken !== undefined && current.fencingToken !== fencingToken) {
+        throw new Error(`Fencing token mismatch on task '${taskId}': expected ${current.fencingToken}, got ${fencingToken}. Stale worker rejected.`);
+      }
+      if (!TaskStateMachine.canTransition(current.state, nextState)) {
+        throw new Error(`Illegal state transition: Cannot move task '${taskId}' from [${current.state}] to [${nextState}].`);
+      }
 
-    if (fencingToken !== null && fencingToken !== undefined && current.fencingToken !== fencingToken) {
-      throw new Error(`Fencing token mismatch on task '${taskId}': expected ${current.fencingToken}, got ${fencingToken}. Stale worker rejected.`);
-    }
+      const nowIso = new Date().toISOString();
+      const historyEntry = {
+        timestamp: nowIso,
+        fromState: current.state,
+        toState: nextState,
+        actor,
+        reason,
+        evidence: evidence ? JSON.parse(JSON.stringify(evidence)) : null
+      };
+      const newOutput = output ? JSON.stringify(output) : (current.output ? JSON.stringify(current.output) : null);
+      const newEvidence = evidence ? JSON.stringify(evidence) : (current.evidence ? JSON.stringify(current.evidence) : null);
+      const terminalStates = new Set([
+        TASK_STATES.DONE,
+        TASK_STATES.FAILED,
+        TASK_STATES.BLOCKED,
+        TASK_STATES.ESCALATED,
+        TASK_STATES.ARTIFACT_READY,
+        TASK_STATES.PR_OPEN,
+        TASK_STATES.AWAITING_REVIEW,
+        TASK_STATES.DEPLOYED
+      ]);
+      let completedAt = current.completedAt;
+      let failedAt = current.failedAt;
+      if (nextState === TASK_STATES.DONE && !completedAt) completedAt = nowIso;
+      if (nextState === TASK_STATES.FAILED && !failedAt) failedAt = nowIso;
 
-    if (!TaskStateMachine.canTransition(current.state, nextState)) {
-      throw new Error(`Illegal state transition: Cannot move task '${taskId}' from [${current.state}] to [${nextState}].`);
-    }
-
-    const nowIso = new Date().toISOString();
-    const historyEntry = {
-      timestamp: nowIso,
-      fromState: current.state,
-      toState: nextState,
-      actor,
-      reason,
-      evidence: evidence ? JSON.parse(JSON.stringify(evidence)) : null
-    };
-
-    const updatedHistory = [...current.history, historyEntry];
-    const newOutput = output ? JSON.stringify(output) : (current.output ? JSON.stringify(current.output) : null);
-    const newEvidence = evidence ? JSON.stringify(evidence) : (current.evidence ? JSON.stringify(current.evidence) : null);
-
-    let completedAt = current.completedAt;
-    let failedAt = current.failedAt;
-    if (nextState === TASK_STATES.DONE && !completedAt) completedAt = nowIso;
-    if (nextState === TASK_STATES.FAILED && !failedAt) failedAt = nowIso;
-
-    const stmt = this.db.prepare(`
-      UPDATE tasks SET
-        state = ?,
-        output = ?,
-        evidence = ?,
-        history = ?,
-        completed_at = ?,
-        failed_at = ?,
-        updated_at = ?
-      WHERE id = ?
-    `);
-
-    stmt.run(
-      nextState,
-      newOutput,
-      newEvidence,
-      JSON.stringify(updatedHistory),
-      completedAt,
-      failedAt,
-      nowIso,
-      taskId
-    );
-
-    return this.getTask(taskId);
+      const result = this.db.prepare(`
+        UPDATE tasks SET
+          state = ?,
+          output = ?,
+          evidence = ?,
+          history = ?,
+          completed_at = ?,
+          failed_at = ?,
+          lease_owner = CASE WHEN ? = 1 THEN NULL ELSE lease_owner END,
+          lease_expires_at = CASE WHEN ? = 1 THEN 0 ELSE lease_expires_at END,
+          updated_at = ?
+        WHERE id = ? AND state = ? AND fencing_token = ?
+      `).run(
+        nextState,
+        newOutput,
+        newEvidence,
+        JSON.stringify([...current.history, historyEntry]),
+        completedAt,
+        failedAt,
+        terminalStates.has(nextState) ? 1 : 0,
+        terminalStates.has(nextState) ? 1 : 0,
+        nowIso,
+        taskId,
+        current.state,
+        current.fencingToken
+      );
+      if (result.changes !== 1) {
+        throw new Error(`Concurrent transition rejected for task '${taskId}'. State or fencing token changed.`);
+      }
+      this._insertEvent(taskId, historyEntry, current.fencingToken);
+      return this.getTask(taskId);
+    });
   }
 
   /**
    * Recovers tasks that have exceeded lease expiry while in active states.
    */
   recoverExpiredLeases() {
-    const nowMs = Date.now();
-    const nowIso = new Date(nowMs).toISOString();
+    return this._transaction(() => {
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
+      const expiredRows = this.db.prepare(`
+        SELECT * FROM tasks
+        WHERE state IN ('CLAIMED', 'RUNNING', 'VERIFYING') AND lease_expires_at > 0 AND lease_expires_at < ?
+      `).all(nowMs);
+      const recovered = [];
 
-    const expiredRows = this.db.prepare(`
-      SELECT * FROM tasks
-      WHERE state IN ('CLAIMED', 'RUNNING') AND lease_expires_at > 0 AND lease_expires_at < ?
-    `).all(nowMs);
-
-    const recovered = [];
-
-    for (const row of expiredRows) {
-      const task = this._hydrate(row);
-      const historyEntry = {
-        timestamp: nowIso,
-        fromState: task.state,
-        toState: TASK_STATES.QUEUED,
-        actor: 'lease-reconciler',
-        reason: `Worker lease expired (last owner: ${task.leaseOwner || 'unknown'}). Re-queuing task.`,
-        evidence: { expiredAt: task.leaseExpiresAt, nowMs }
-      };
-
-      const updatedHistory = [...task.history, historyEntry];
-      this.db.prepare(`
-        UPDATE tasks SET
-          state = 'QUEUED',
-          lease_owner = NULL,
-          lease_expires_at = 0,
-          history = ?,
-          updated_at = ?
-        WHERE id = ?
-      `).run(JSON.stringify(updatedHistory), nowIso, task.id);
-
-      recovered.push(this.getTask(task.id));
-    }
-
-    return recovered;
+      for (const row of expiredRows) {
+        const task = this._hydrate(row);
+        const nextFencingToken = task.fencingToken + 1;
+        const historyEntry = {
+          timestamp: nowIso,
+          fromState: task.state,
+          toState: TASK_STATES.QUEUED,
+          actor: 'lease-reconciler',
+          reason: `Worker lease expired (last owner: ${task.leaseOwner || 'unknown'}). Re-queuing task.`,
+          evidence: { expiredAt: task.leaseExpiresAt, nowMs, fencingToken: nextFencingToken }
+        };
+        const result = this.db.prepare(`
+          UPDATE tasks SET
+            state = 'QUEUED',
+            owner = NULL,
+            lease_owner = NULL,
+            lease_expires_at = 0,
+            fencing_token = ?,
+            history = ?,
+            updated_at = ?
+          WHERE id = ?
+            AND state = ?
+            AND fencing_token = ?
+            AND lease_expires_at = ?
+            AND lease_expires_at < ?
+        `).run(
+          nextFencingToken,
+          JSON.stringify([...task.history, historyEntry]),
+          nowIso,
+          task.id,
+          task.state,
+          task.fencingToken,
+          task.leaseExpiresAt,
+          nowMs
+        );
+        if (result.changes === 1) {
+          this._insertEvent(task.id, historyEntry, nextFencingToken);
+          recovered.push(this.getTask(task.id));
+        }
+      }
+      return recovered;
+    });
   }
 
   listTasks({ limit = 50, state = null } = {}) {
@@ -377,6 +479,26 @@ export class TaskLedgerDb {
 
     const rows = this.db.prepare(query).all(...params);
     return rows.map(r => this._hydrate(r));
+  }
+
+  listEvents(taskId) {
+    if (!taskId) return [];
+    return this.db.prepare(`
+      SELECT event_id, task_id, timestamp, from_state, to_state, actor, reason, evidence, fencing_token
+      FROM task_events
+      WHERE task_id = ?
+      ORDER BY event_id ASC
+    `).all(taskId).map(row => ({
+      eventId: Number(row.event_id),
+      taskId: row.task_id,
+      timestamp: row.timestamp,
+      fromState: row.from_state,
+      toState: row.to_state,
+      actor: row.actor,
+      reason: row.reason,
+      evidence: row.evidence ? JSON.parse(row.evidence) : null,
+      fencingToken: Number(row.fencing_token)
+    }));
   }
 
   /**

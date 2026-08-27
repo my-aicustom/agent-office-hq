@@ -55,6 +55,7 @@ test('TaskLedgerDb: creates task, enforces idempotency, and persists ACID transa
 test('TaskLedgerDb: atomic claim increments fencing token and blocks concurrent workers', () => {
   cleanup();
   const ledger = new TaskLedgerDb({ dbPath: TEST_DB_PATH });
+  const secondConnection = new TaskLedgerDb({ dbPath: TEST_DB_PATH });
 
   const { task } = ledger.createTask({
     title: 'Atomic Claim Drill',
@@ -70,9 +71,10 @@ test('TaskLedgerDb: atomic claim increments fencing token and blocks concurrent 
   assert.equal(claimedByWorker1.fencingToken, 2);
 
   // Worker 2 attempts to claim at the same time (must return null because no queued task is available)
-  const claimedByWorker2 = ledger.claimNextQueuedTask({ workerId: 'worker-node-2', leaseTtlMs: 5000 });
+  const claimedByWorker2 = secondConnection.claimNextQueuedTask({ workerId: 'worker-node-2', leaseTtlMs: 5000 });
   assert.equal(claimedByWorker2, null);
 
+  secondConnection.close();
   ledger.close();
   cleanup();
 });
@@ -128,6 +130,12 @@ test('TaskLedgerDb: recovers expired worker leases back to QUEUED', async () => 
   assert.equal(recovered[0].id, task.id);
   assert.equal(recovered[0].state, TASK_STATES.QUEUED);
   assert.equal(recovered[0].leaseOwner, null);
+  assert.equal(recovered[0].fencingToken, 3);
+  assert.equal(ledger.heartbeat(task.id, 'crashed-worker', {
+    fencingToken: 2,
+    leaseTtlMs: 5000
+  }), false);
+  assert.ok(ledger.listEvents(task.id).some(event => event.actor === 'lease-reconciler'));
 
   ledger.close();
   cleanup();
@@ -208,7 +216,8 @@ test('SeoPageExecutor: real git integration stages, commits, isolates a branch, 
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args[0] === 'add'));
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.name=Ddos-spec')));
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.email=setgraph69@gmail.com')));
-  assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create' && c.args.includes('--base')));
+    assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create' && c.args.includes('--base')));
+  assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args.includes('--draft')));
 
   cleanup();
 });
@@ -282,7 +291,7 @@ test('SeoPageExecutor: real git repo integration isolates the commit on its own 
   }
 });
 
-test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified DONE state', async () => {
+test('ActiveTaskConsumer: stops a verified SEO draft at ARTIFACT_READY instead of faking DONE', async () => {
   cleanup();
   const ledger = new TaskLedgerDb({ dbPath: TEST_DB_PATH });
   const seoExecutor = new SeoPageExecutor({ contentOutputDir: TEST_SEO_OUTPUT });
@@ -300,7 +309,8 @@ test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified 
         return {
           actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
           status: 'VERIFIED',
-          externalEffect: 'ARTIFACT_COMMITTED',
+          nextState: TASK_STATES.ARTIFACT_READY,
+          externalEffect: 'LOCAL_DRAFT_CREATED',
           evidence: [{
             kind: 'SEO_PAGE_ARTIFACT',
             filePath: result.filePath,
@@ -331,10 +341,40 @@ test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified 
 
   assert.ok(completed);
   assert.equal(completed.id, task.id);
-  assert.equal(completed.state, TASK_STATES.DONE);
+  assert.equal(completed.state, TASK_STATES.ARTIFACT_READY);
   assert.equal(completed.output.actionType, 'SEO_OPPORTUNITY_OPTIMIZE');
   assert.ok(completed.output.evidence[0].artifactHash);
   assert.ok(completed.output.evidence[0].git);
+
+  ledger.close();
+  cleanup();
+});
+
+test('ActiveTaskConsumer: rejects mutating DONE without production HTTP verification', async () => {
+  cleanup();
+  const ledger = new TaskLedgerDb({ dbPath: TEST_DB_PATH });
+  const consumer = new ActiveTaskConsumer({
+    ledger,
+    workerId: 'unsafe-worker',
+    executors: {
+      SEO_OPPORTUNITY_OPTIMIZE: async () => ({
+        actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
+        status: 'VERIFIED',
+        nextState: TASK_STATES.DONE,
+        evidence: [{ kind: 'LOCAL_FILE', verified: true }]
+      })
+    }
+  });
+  const { task } = ledger.createTask({
+    title: 'Unsafe completion probe',
+    input: { actionType: 'SEO_OPPORTUNITY_OPTIMIZE' },
+    idempotencyKey: 'unsafe_done_probe'
+  });
+
+  const result = await consumer.processNextTask();
+  assert.equal(result.id, task.id);
+  assert.equal(result.state, TASK_STATES.FAILED);
+  assert.match(result.history.at(-1).reason, /cannot become DONE/i);
 
   ledger.close();
   cleanup();
