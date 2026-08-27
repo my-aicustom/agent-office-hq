@@ -1,0 +1,118 @@
+name: Production Rule 11 E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify production provider quorum and field evidence
+        env:
+          HQ_PASSWORD: ${{ secrets.HQ_PASSWORD }}
+          BASE_URL: https://seo.tepatlaser.com
+        run: |
+          node <<'NODE'
+          const baseUrl = process.env.BASE_URL;
+          const password = process.env.HQ_PASSWORD;
+          if (!password) throw new Error('HQ_PASSWORD secret is missing.');
+
+          const requestJson = async (path, options = {}) => {
+            const response = await fetch(`${baseUrl}${path}`, options);
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(`${path} returned HTTP ${response.status}: ${body.message || 'unknown error'}`);
+            return body;
+          };
+
+          const login = await requestJson('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+          });
+          if (!login.token) throw new Error('Production login returned no token.');
+
+          const headers = {
+            Authorization: `Bearer ${login.token}`,
+            'Content-Type': 'application/json'
+          };
+          const nonce = Date.now();
+          const trigger = await requestJson('/api/cases/trigger', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              title: `Rule 11 Production E2E Health ${nonce}`,
+              type: 'INCIDENT:PRODUCTION_E2E',
+              severity: 'LOW',
+              source: `github_e2e_${nonce}`,
+              error: 'Verify the deployed public health endpoint without mutation',
+              metadata: {
+                requestedActionType: 'HTTP_HEALTH_CHECK',
+                targetUrl: `${baseUrl}/healthz`
+              }
+            })
+          });
+
+          const casePacket = trigger.result;
+          if (!casePacket?.caseId) throw new Error('Case trigger returned no case packet.');
+          if (casePacket.quorum?.status !== 'QUORUM_MET' || casePacket.quorum?.verdict !== 'ACTION_APPROVED') {
+            throw new Error(`Quorum rejected: ${casePacket.quorum?.status}/${casePacket.quorum?.verdict}`);
+          }
+
+          const requiredProviders = new Set(['gemini', 'openrouter']);
+          const verifiedTurns = (casePacket.turns || []).filter(turn =>
+            turn.status === 'SUCCESS' &&
+            turn.outboundEvidence?.verified === true &&
+            turn.outboundEvidence.httpStatus >= 200 &&
+            turn.outboundEvidence.httpStatus < 300 &&
+            turn.outboundEvidence.requestId &&
+            turn.vote?.decision === 'APPROVE' &&
+            turn.vote?.actionType === 'HTTP_HEALTH_CHECK'
+          );
+          for (const provider of requiredProviders) {
+            if (!verifiedTurns.some(turn => turn.providerKey === provider)) {
+              throw new Error(`Missing verified approval from ${provider}.`);
+            }
+          }
+
+          let task = null;
+          for (let attempt = 0; attempt < 10; attempt += 1) {
+            const response = await requestJson('/api/director/tasks?limit=50', { headers });
+            task = (response.tasks || []).find(item => item.id === casePacket.dispatchedTaskId) || null;
+            if (task && ['DONE', 'BLOCKED', 'FAILED', 'ESCALATED'].includes(task.state)) break;
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          if (task?.state !== 'DONE' || task.output?.status !== 'VERIFIED') {
+            throw new Error(`Consumer did not produce verified DONE evidence; state=${task?.state || 'missing'}.`);
+          }
+          const httpEvidence = (task.output.evidence || []).find(item =>
+            item.kind === 'HTTP_RESPONSE' && item.httpStatus === 200 && /^[a-f0-9]{64}$/.test(item.bodySha256 || '')
+          );
+          if (!httpEvidence) throw new Error('Consumer output lacks verifiable HTTP response evidence.');
+
+          const safeSummary = {
+            caseId: casePacket.caseId,
+            quorumStatus: casePacket.quorum.status,
+            quorumVerdict: casePacket.quorum.verdict,
+            approvedProviders: casePacket.quorum.approvedProviders,
+            turns: verifiedTurns.map(turn => ({
+              providerKey: turn.providerKey,
+              actualModel: turn.actualModel,
+              latencyMs: turn.latencyMs,
+              totalTokens: turn.usage?.totalTokens,
+              httpStatus: turn.outboundEvidence.httpStatus,
+              requestIdPresent: Boolean(turn.outboundEvidence.requestId)
+            })),
+            totalTokens: casePacket.budget?.totalTokensUsed,
+            estimatedCostIdr: casePacket.budget?.totalCostIdr,
+            taskId: task.id,
+            taskState: task.state,
+            evidence: {
+              kind: httpEvidence.kind,
+              targetUrl: httpEvidence.targetUrl,
+              httpStatus: httpEvidence.httpStatus,
+              bodySha256: httpEvidence.bodySha256,
+              verifiedAt: httpEvidence.verifiedAt
+            }
+          };
+          console.log(JSON.stringify(safeSummary, null, 2));
+          NODE
