@@ -3,7 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+import { execFileSync } from 'node:child_process';
 
 import { TaskLedgerDb } from '../director/task_ledger_db.mjs';
 import { SeoPageExecutor } from '../director/executors/seo_page_executor.mjs';
@@ -154,11 +156,12 @@ test('SeoPageExecutor: draft mode generates markdown, validates schema, and repo
   cleanup();
 });
 
-test('SeoPageExecutor: real git integration stages, commits, and captures sha & PR evidence', async () => {
+test('SeoPageExecutor: real git integration stages, commits, isolates a branch, and captures sha & PR evidence', async () => {
   cleanup();
   const executedCommands = [];
   const mockExec = (cmd, args) => {
     executedCommands.push({ cmd, args });
+    if (cmd === 'git' && args.includes('rev-parse') && args.includes('--abbrev-ref')) return 'main';
     if (cmd === 'git' && args.includes('rev-parse')) return 'c0ffee1234567890abcdef1234567890abcdef12';
     if (cmd === 'gh' && args[0] === 'pr') return 'https://github.com/heriscaleup/agent-office-hq/pull/42';
     return '';
@@ -180,17 +183,103 @@ test('SeoPageExecutor: real git integration stages, commits, and captures sha & 
 
   assert.equal(result.action, 'SEO_PAGE_GENERATED');
   assert.equal(result.git.committed, true);
+  assert.equal(result.git.branchCreated, true);
   assert.equal(result.git.commitSha, 'c0ffee1234567890abcdef1234567890abcdef12');
   assert.equal(result.git.pushed, true);
   assert.equal(result.git.prUrl, 'https://github.com/heriscaleup/agent-office-hq/pull/42');
 
-  // Verify exact command sequences
+  // Verify the change is isolated onto its own branch, not committed onto whatever
+  // branch happened to be checked out (this is the exact bug that shipped in d6c4ebb).
+  assert.ok(
+    executedCommands.some(c => c.cmd === 'git' && c.args[0] === 'checkout' && c.args[1] === '-B' && c.args[2] === result.git.branchName),
+    'expected a git checkout -B <branchName> call to isolate the commit onto its own branch'
+  );
+  const checkoutBIndex = executedCommands.findIndex(c => c.cmd === 'git' && c.args[0] === 'checkout' && c.args[1] === '-B');
+  const commitIndex = executedCommands.findIndex(c => c.cmd === 'git' && c.args.includes('commit'));
+  assert.ok(checkoutBIndex >= 0 && checkoutBIndex < commitIndex, 'branch must be created before the commit is made');
+
+  // Verify original branch is restored afterward instead of leaving the caller's
+  // working tree switched to the generated feature branch.
+  assert.ok(
+    executedCommands.some(c => c.cmd === 'git' && c.args[0] === 'checkout' && c.args[1] === 'main'),
+    'expected the executor to restore the original branch after committing'
+  );
+
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args[0] === 'add'));
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.name=Ddos-spec')));
   assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.email=setgraph69@gmail.com')));
-  assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create'));
+  assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create' && c.args.includes('--base')));
 
   cleanup();
+});
+
+test('SeoPageExecutor: a failed push is reported honestly without hiding the real commit or losing it on main', async () => {
+  cleanup();
+  const mockExec = (cmd, args) => {
+    if (cmd === 'git' && args.includes('rev-parse') && args.includes('--abbrev-ref')) return 'main';
+    if (cmd === 'git' && args.includes('rev-parse')) return 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    if (cmd === 'git' && args[0] === 'push') throw new Error('src refspec does not match any');
+    return '';
+  };
+
+  const executor = new SeoPageExecutor({
+    contentOutputDir: TEST_SEO_OUTPUT,
+    execFn: mockExec
+  });
+
+  const result = await executor.execute({
+    keyword: 'jasa laser cutting plat besi custom',
+    git: { commit: true, push: true, createPr: false }
+  });
+
+  // A real commit exists on the isolated branch even though push failed —
+  // this must never be reported as committed:false (that was the exact bug
+  // in d6c4ebb: a real mutation happened but the caller was told it did not).
+  assert.equal(result.git.committed, true);
+  assert.equal(result.git.commitSha, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef');
+  assert.equal(result.git.pushed, false);
+  assert.match(result.git.reason, /push failed/i);
+
+  cleanup();
+});
+
+test('SeoPageExecutor: real git repo integration isolates the commit on its own branch and never touches the original branch', async () => {
+  const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-git-real-'));
+  const git = (args) => execFileSync('git', args, { cwd: repoDir, encoding: 'utf8' }).trim();
+
+  try {
+    git(['-c', 'init.defaultBranch=main', 'init', '-q']);
+    git(['-c', 'user.name=tester', '-c', 'user.email=tester@example.com', 'commit', '--allow-empty', '-q', '-m', 'init']);
+
+    const executor = new SeoPageExecutor({
+      repoPath: repoDir,
+      contentOutputDir: path.join(repoDir, 'drafts')
+    });
+
+    const result = await executor.execute({
+      keyword: 'real git branch isolation probe',
+      git: { commit: true, push: false, createPr: false }
+    });
+
+    assert.equal(result.git.committed, true);
+    assert.equal(result.git.branchCreated, true);
+
+    // The working tree must be back on the original branch afterward.
+    assert.equal(git(['rev-parse', '--abbrev-ref', 'HEAD']), 'main');
+
+    // main's history must NOT contain the generated SEO commit.
+    const mainLog = git(['log', '--oneline', 'main']);
+    assert.ok(
+      !mainLog.split('\n').some((line) => line.startsWith(result.git.commitSha.slice(0, 7))),
+      'the SEO commit must not have landed on main'
+    );
+
+    // The isolated feature branch must contain it.
+    const branchLog = git(['log', '--oneline', result.git.branchName]);
+    assert.ok(branchLog.split('\n')[0].startsWith(result.git.commitSha.slice(0, 7)));
+  } finally {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  }
 });
 
 test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified DONE state', async () => {

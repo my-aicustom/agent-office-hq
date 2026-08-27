@@ -175,6 +175,7 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
     // 6. Real Git Operations (Executed only when enabled)
     let gitResult = {
       committed: false,
+      branchCreated: false,
       branchName,
       commitMessage,
       commitSha: null,
@@ -184,13 +185,17 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
     };
 
     if (shouldCommit) {
+      let originalBranch = null;
       try {
+        originalBranch = this.execFn('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+
+        // Isolate the change on its own branch instead of committing on whatever
+        // branch the caller's working tree currently has checked out.
+        this.execFn('git', ['checkout', '-B', branchName]);
+        gitResult.branchCreated = true;
+
         const relativeFilePath = path.relative(this.repoPath, filePath);
-
-        // Stage file
         this.execFn('git', ['add', relativeFilePath]);
-
-        // Commit with configured identity
         this.execFn('git', [
           '-c', `user.name=${this.gitConfig.userName}`,
           '-c', `user.email=${this.gitConfig.userEmail}`,
@@ -198,37 +203,52 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
           '-m', commitMessage
         ]);
 
-        // Retrieve real commit SHA
+        // Retrieve real commit SHA. Past this point a real commit exists on
+        // branchName, so nothing below is allowed to report committed:false.
         const commitSha = this.execFn('git', ['rev-parse', 'HEAD']);
-
-        let pushed = false;
-        if (shouldPush) {
-          this.execFn('git', ['push', '-u', 'origin', branchName]);
-          pushed = true;
-        }
-
-        let prUrl = null;
-        if (shouldCreatePr) {
-          prUrl = this.execFn('gh', [
-            'pr', 'create',
-            '--title', `feat(seo): ${keyword} landing article`,
-            '--body', `Automated SEO Landing draft for keyword \`${keyword}\`.\nArtifact SHA-256: \`${artifactHash}\`\nValidated by VerifierGate.`,
-            '--head', branchName
-          ]);
-        }
-
         gitResult = {
+          ...gitResult,
           committed: true,
-          branchName,
-          commitMessage,
           commitSha,
-          pushed,
-          prUrl,
           reason: 'Git commit executed successfully'
         };
+
+        if (shouldPush) {
+          try {
+            this.execFn('git', ['push', '-u', 'origin', branchName]);
+            gitResult.pushed = true;
+          } catch (pushErr) {
+            gitResult.error = pushErr.message;
+            gitResult.reason = `Commit succeeded but push failed: ${pushErr.message}`;
+          }
+        }
+
+        if (shouldCreatePr) {
+          if (!gitResult.pushed) {
+            gitResult.reason = gitResult.error
+              ? gitResult.reason
+              : 'Commit succeeded but PR was not created because push was not requested or did not complete';
+          } else {
+            try {
+              gitResult.prUrl = this.execFn('gh', [
+                'pr', 'create',
+                '--title', `feat(seo): ${keyword} landing article`,
+                '--body', `Automated SEO Landing draft for keyword \`${keyword}\`.\nArtifact SHA-256: \`${artifactHash}\`\nValidated by VerifierGate.`,
+                '--head', branchName,
+                '--base', originalBranch
+              ]);
+            } catch (prErr) {
+              gitResult.error = prErr.message;
+              gitResult.reason = `Commit and push succeeded but PR creation failed: ${prErr.message}`;
+            }
+          }
+        }
       } catch (gitErr) {
+        // Only reachable if branch creation, staging, or the commit itself
+        // failed — i.e. committed is still accurately false here.
         gitResult = {
           committed: false,
+          branchCreated: gitResult.branchCreated,
           branchName,
           commitMessage,
           commitSha: null,
@@ -237,6 +257,17 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
           error: gitErr.message,
           reason: `Git operation failed: ${gitErr.message}`
         };
+      } finally {
+        // Best-effort restore so this executor never leaves the caller's
+        // working tree switched to a generated feature branch.
+        if (originalBranch) {
+          try {
+            this.execFn('git', ['checkout', originalBranch]);
+          } catch {
+            // If restoring fails, the repo stays on branchName; the caller
+            // still has an accurate gitResult to act on.
+          }
+        }
       }
     }
 
