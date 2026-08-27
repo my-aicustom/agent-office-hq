@@ -54,9 +54,13 @@ jobs:
             chmod 600 /etc/ssh/sshd_config.d/99-agent-office-hq-key-only.conf
             /usr/sbin/sshd -t
             sshd_effective="$(/usr/sbin/sshd -T)"
-            printf '%s\n' "$sshd_effective" | grep -qx 'passwordauthentication no'
-            printf '%s\n' "$sshd_effective" | grep -qx 'kbdinteractiveauthentication no'
-            printf '%s\n' "$sshd_effective" | grep -qx 'permitrootlogin without-password'
+            password_auth="$(printf '%s\n' "$sshd_effective" | awk '$1 == "passwordauthentication" { print $2; exit }')"
+            keyboard_auth="$(printf '%s\n' "$sshd_effective" | awk '$1 == "kbdinteractiveauthentication" { print $2; exit }')"
+            root_login="$(printf '%s\n' "$sshd_effective" | awk '$1 == "permitrootlogin" { print $2; exit }')"
+            echo "Effective SSH policy: password=$password_auth keyboard-interactive=$keyboard_auth root=$root_login"
+            [ "$password_auth" = 'no' ]
+            [ "$keyboard_auth" = 'no' ]
+            [ "$root_login" = 'without-password' ] || [ "$root_login" = 'prohibit-password' ]
             if command -v systemctl >/dev/null 2>&1; then
               systemctl reload ssh || systemctl reload sshd
             else
