@@ -1,20 +1,44 @@
-// Iron Director — Real SEO Page & PR Executor (Rule 11 Integrity Guard)
+﻿// Iron Director — Real SEO Page & Git/PR Executor (Rule 11 Integrity Guard)
 // Generates production-grade Markdown/Astro content, validates schemas deterministically,
-// and produces verified artifact hashes and PR evidence without fake shortcuts.
+// produces verified artifact hashes, and executes real Git branching/commits when enabled.
 
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { execFileSync } from 'node:child_process';
 import { VerifierGate } from '../verifier_gate.mjs';
 
 export class SeoPageExecutor {
-  constructor({ contentOutputDir = null, verifier = new VerifierGate() } = {}) {
+  constructor({
+    contentOutputDir = null,
+    repoPath = null,
+    gitConfig = {
+      userName: 'Ddos-spec',
+      userEmail: 'setgraph69@gmail.com'
+    },
+    enableGit = false,
+    verifier = new VerifierGate(),
+    execFn = null
+  } = {}) {
     this.outputDir = contentOutputDir || path.resolve('data/seo-drafts');
+    this.repoPath = repoPath || path.resolve('.');
+    this.gitConfig = gitConfig;
+    this.enableGit = enableGit;
     this.verifier = verifier;
+    this.execFn = execFn || this._defaultExec.bind(this);
 
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
+  }
+
+  _defaultExec(cmd, args, options = {}) {
+    return execFileSync(cmd, args, {
+      cwd: this.repoPath,
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...options
+    }).trim();
   }
 
   /**
@@ -30,12 +54,24 @@ export class SeoPageExecutor {
   }
 
   /**
-   * Executes SEO Page generation, schema validation, and artifact hash calculation.
+   * Executes SEO Page generation, schema validation, artifact hash calculation,
+   * and optional real Git branch, commit, and PR creation.
    */
-  async execute({ keyword, intent = 'commercial', cluster = 'stainless', targetUrl = null, gscEvidence = null } = {}) {
+  async execute({
+    keyword,
+    intent = 'commercial',
+    cluster = 'stainless',
+    targetUrl = null,
+    gscEvidence = null,
+    git = {}
+  } = {}) {
     if (!keyword || typeof keyword !== 'string') {
       throw new Error("SeoPageExecutor: Field 'keyword' is required.");
     }
+
+    const shouldCommit = git.commit ?? this.enableGit;
+    const shouldPush = git.push ?? false;
+    const shouldCreatePr = git.createPr ?? false;
 
     const slug = SeoPageExecutor.slugify(keyword);
     const canonicalUrl = targetUrl || `https://tepatlaser.com/blog/${slug}`;
@@ -133,9 +169,76 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
     const filePath = path.join(this.outputDir, filename);
     fs.writeFileSync(filePath, markdownContent, 'utf8');
 
-    // 6. Form Verified PR / Git Branch Evidence
     const branchName = `seo/optimize-${slug}`;
     const commitMessage = `feat(seo): generate optimized landing draft for keyword '${keyword}' [hash:${artifactHash.slice(0, 8)}]`;
+
+    // 6. Real Git Operations (Executed only when enabled)
+    let gitResult = {
+      committed: false,
+      branchName,
+      commitMessage,
+      commitSha: null,
+      pushed: false,
+      prUrl: null,
+      reason: shouldCommit ? 'Git execution failed' : 'Draft mode: Git commit not requested'
+    };
+
+    if (shouldCommit) {
+      try {
+        const relativeFilePath = path.relative(this.repoPath, filePath);
+
+        // Stage file
+        this.execFn('git', ['add', relativeFilePath]);
+
+        // Commit with configured identity
+        this.execFn('git', [
+          '-c', `user.name=${this.gitConfig.userName}`,
+          '-c', `user.email=${this.gitConfig.userEmail}`,
+          'commit',
+          '-m', commitMessage
+        ]);
+
+        // Retrieve real commit SHA
+        const commitSha = this.execFn('git', ['rev-parse', 'HEAD']);
+
+        let pushed = false;
+        if (shouldPush) {
+          this.execFn('git', ['push', '-u', 'origin', branchName]);
+          pushed = true;
+        }
+
+        let prUrl = null;
+        if (shouldCreatePr) {
+          prUrl = this.execFn('gh', [
+            'pr', 'create',
+            '--title', `feat(seo): ${keyword} landing article`,
+            '--body', `Automated SEO Landing draft for keyword \`${keyword}\`.\nArtifact SHA-256: \`${artifactHash}\`\nValidated by VerifierGate.`,
+            '--head', branchName
+          ]);
+        }
+
+        gitResult = {
+          committed: true,
+          branchName,
+          commitMessage,
+          commitSha,
+          pushed,
+          prUrl,
+          reason: 'Git commit executed successfully'
+        };
+      } catch (gitErr) {
+        gitResult = {
+          committed: false,
+          branchName,
+          commitMessage,
+          commitSha: null,
+          pushed: false,
+          prUrl: null,
+          error: gitErr.message,
+          reason: `Git operation failed: ${gitErr.message}`
+        };
+      }
+    }
 
     return {
       action: 'SEO_PAGE_GENERATED',
@@ -144,10 +247,9 @@ Dapatkan potongan harga khusus untuk pemesanan proyek skala pabrikasi atau pesan
       canonicalUrl,
       filePath,
       artifactHash,
-      branchName,
-      commitMessage,
       wordCount: markdownContent.split(/\s+/).length,
       schemaValid: true,
+      git: gitResult,
       evidence: {
         gscMetrics: gscEvidence || { status: 'OPTIMIZATION_TARGET' },
         generatedAt: new Date().toISOString(),

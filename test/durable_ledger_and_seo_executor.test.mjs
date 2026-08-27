@@ -1,4 +1,4 @@
-// Unit tests for SQLite Task Ledger & Real SEO PR Executor (Rule 11 Integrity Guard)
+﻿// Unit tests for SQLite Task Ledger & Real SEO PR Executor (Rule 11 Integrity Guard)
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -131,7 +131,7 @@ test('TaskLedgerDb: recovers expired worker leases back to QUEUED', async () => 
   cleanup();
 });
 
-test('SeoPageExecutor: generates production markdown, validates schema, and computes artifact hash', async () => {
+test('SeoPageExecutor: draft mode generates markdown, validates schema, and reports draft status honestly', async () => {
   cleanup();
   const executor = new SeoPageExecutor({ contentOutputDir: TEST_SEO_OUTPUT });
 
@@ -147,13 +147,48 @@ test('SeoPageExecutor: generates production markdown, validates schema, and comp
   assert.equal(result.schemaValid, true);
   assert.ok(result.wordCount > 150);
   assert.ok(result.artifactHash && result.artifactHash.length === 64);
-  assert.ok(result.branchName.startsWith('seo/optimize-'));
+  assert.equal(result.git.committed, false);
+  assert.equal(result.git.reason, 'Draft mode: Git commit not requested');
   assert.ok(fs.existsSync(result.filePath));
 
-  // Verify file content matches artifact hash
-  const fileContent = fs.readFileSync(result.filePath, 'utf8');
-  assert.ok(fileContent.includes('Jasa Laser Cutting JASA LASER CUTTING PLAT STAINLESS TANGERANG'));
-  assert.ok(fileContent.includes('Tabel Spesifikasi & Kapasitas Material'));
+  cleanup();
+});
+
+test('SeoPageExecutor: real git integration stages, commits, and captures sha & PR evidence', async () => {
+  cleanup();
+  const executedCommands = [];
+  const mockExec = (cmd, args) => {
+    executedCommands.push({ cmd, args });
+    if (cmd === 'git' && args.includes('rev-parse')) return 'c0ffee1234567890abcdef1234567890abcdef12';
+    if (cmd === 'gh' && args[0] === 'pr') return 'https://github.com/heriscaleup/agent-office-hq/pull/42';
+    return '';
+  };
+
+  const executor = new SeoPageExecutor({
+    contentOutputDir: TEST_SEO_OUTPUT,
+    execFn: mockExec
+  });
+
+  const result = await executor.execute({
+    keyword: 'jasa laser cutting akrilik presisi',
+    git: {
+      commit: true,
+      push: true,
+      createPr: true
+    }
+  });
+
+  assert.equal(result.action, 'SEO_PAGE_GENERATED');
+  assert.equal(result.git.committed, true);
+  assert.equal(result.git.commitSha, 'c0ffee1234567890abcdef1234567890abcdef12');
+  assert.equal(result.git.pushed, true);
+  assert.equal(result.git.prUrl, 'https://github.com/heriscaleup/agent-office-hq/pull/42');
+
+  // Verify exact command sequences
+  assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args[0] === 'add'));
+  assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.name=Ddos-spec')));
+  assert.ok(executedCommands.some(c => c.cmd === 'git' && c.args.includes('user.email=setgraph69@gmail.com')));
+  assert.ok(executedCommands.some(c => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'create'));
 
   cleanup();
 });
@@ -181,8 +216,7 @@ test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified 
             kind: 'SEO_PAGE_ARTIFACT',
             filePath: result.filePath,
             artifactHash: result.artifactHash,
-            branchName: result.branchName,
-            commitMessage: result.commitMessage,
+            git: result.git,
             wordCount: result.wordCount,
             verifiedAt: new Date().toISOString()
           }]
@@ -211,7 +245,7 @@ test('ActiveTaskConsumer: processes SEO remediation task end-to-end to verified 
   assert.equal(completed.state, TASK_STATES.DONE);
   assert.equal(completed.output.actionType, 'SEO_OPPORTUNITY_OPTIMIZE');
   assert.ok(completed.output.evidence[0].artifactHash);
-  assert.ok(completed.output.evidence[0].branchName);
+  assert.ok(completed.output.evidence[0].git);
 
   ledger.close();
   cleanup();
