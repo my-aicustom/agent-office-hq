@@ -39,6 +39,31 @@ jobs:
           port: 22
           script: |
             set -eu
+            if [ "$(id -u)" -ne 0 ]; then
+              echo "Deployment account must be root to enforce SSH hardening."
+              exit 1
+            fi
+
+            mkdir -p /etc/ssh/sshd_config.d
+            printf '%s\n' \
+              'PasswordAuthentication no' \
+              'KbdInteractiveAuthentication no' \
+              'ChallengeResponseAuthentication no' \
+              'PermitRootLogin prohibit-password' \
+              > /etc/ssh/sshd_config.d/99-agent-office-hq-key-only.conf
+            chmod 600 /etc/ssh/sshd_config.d/99-agent-office-hq-key-only.conf
+            /usr/sbin/sshd -t
+            sshd_effective="$(/usr/sbin/sshd -T)"
+            printf '%s\n' "$sshd_effective" | grep -qx 'passwordauthentication no'
+            printf '%s\n' "$sshd_effective" | grep -qx 'kbdinteractiveauthentication no'
+            printf '%s\n' "$sshd_effective" | grep -qx 'permitrootlogin without-password'
+            if command -v systemctl >/dev/null 2>&1; then
+              systemctl reload ssh || systemctl reload sshd
+            else
+              service ssh reload || service sshd reload
+            fi
+            echo "SSH public-key-only policy verified."
+
             echo "🚀 [CI/CD] Starting Deployment to /opt/agent-office-hq..."
             
             # Ensure target directory exists
