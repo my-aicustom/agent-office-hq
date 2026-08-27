@@ -379,6 +379,22 @@ export class TaskLedgerDb {
     return rows.map(r => this._hydrate(r));
   }
 
+  /**
+   * Finds tasks that have stalled without heartbeat or lease update.
+   */
+  getStuckTasks(timeoutMs = 120000) {
+    const nowMs = Date.now();
+    const rows = this.db.prepare(`
+      SELECT * FROM tasks
+      WHERE state IN ('CLAIMED', 'RUNNING', 'VERIFYING')
+    `).all();
+
+    return rows.map(r => this._hydrate(r)).filter(t => {
+      const last = new Date(t.updatedAt || t.claimedAt || t.createdAt).getTime();
+      return nowMs - last >= timeoutMs;
+    });
+  }
+
   getCounts() {
     const rows = this.db.prepare(`SELECT state, COUNT(*) as count FROM tasks GROUP BY state`).all();
     const counts = {};
@@ -389,6 +405,10 @@ export class TaskLedgerDb {
       counts[r.state] = Number(r.count);
     }
     return counts;
+  }
+
+  flush() {
+    // SQLite WAL mode handles persistence automatically
   }
 
   close() {
