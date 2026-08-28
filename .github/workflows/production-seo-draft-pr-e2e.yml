@@ -54,6 +54,21 @@ jobs:
           });
 
           const casePacket = trigger.result;
+          console.log(JSON.stringify({
+            caseId: casePacket?.caseId,
+            dispatchedTaskId: casePacket?.dispatchedTaskId || null,
+            quorum: casePacket?.quorum,
+            turns: (casePacket?.turns || []).map(turn => ({
+              providerKey: turn.providerKey,
+              status: turn.status,
+              actualModel: turn.actualModel,
+              voteDecision: turn.vote?.decision,
+              voteActionType: turn.vote?.actionType,
+              outboundVerified: turn.outboundEvidence?.verified === true,
+              httpStatus: turn.outboundEvidence?.httpStatus,
+              totalTokens: turn.usage?.totalTokens
+            }))
+          }, null, 2));
           if (!casePacket?.caseId || !casePacket?.dispatchedTaskId) throw new Error('Case did not dispatch an executable task.');
           if (casePacket.quorum?.status !== 'QUORUM_MET') throw new Error(`Quorum was not met: ${casePacket.quorum?.status}`);
 
