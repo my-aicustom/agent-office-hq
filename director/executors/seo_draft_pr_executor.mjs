@@ -118,7 +118,7 @@ faq:
     answer: "Karena istilah presisi dapat ditafsirkan berbeda. Nilai toleransi harus mengikuti fungsi komponen dan kemampuan proses yang sudah dikonfirmasi."
 ---
 
-# ${titleKeyword}: Checklist Praktis
+## ${titleKeyword}: Checklist Praktis
 
 Permintaan **${keyword}** sebaiknya tidak langsung diterjemahkan menjadi pekerjaan mesin. Tahap terpenting justru menyamakan definisi hasil yang diterima: bentuk, ukuran, material, jumlah, kondisi tepi, dan proses lanjutan. Panduan ini bersifat prosedural; kemampuan aktual tetap harus dikonfirmasi berdasarkan material, file, dan mesin yang dipakai untuk pesanan.
 
