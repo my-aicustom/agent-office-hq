@@ -97,7 +97,9 @@ jobs:
             mkdir -p /opt/agent-office-hq-secrets
             printf '%s' "$SEO_TARGET_SSH_PRIVATE_KEY_B64" | base64 -d > /opt/agent-office-hq-secrets/seo_target_ed25519
             chmod 600 /opt/agent-office-hq-secrets/seo_target_ed25519
-            ssh-keyscan -t ed25519 github.com > /opt/agent-office-hq-secrets/github_known_hosts 2>/dev/null
+            # Avoid relying on a live keyscan from a restricted VPS network;
+            # this is GitHub's published Ed25519 host key, pinned verbatim.
+            printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > /opt/agent-office-hq-secrets/github_known_hosts
             github_fingerprint="$(ssh-keygen -lf /opt/agent-office-hq-secrets/github_known_hosts -E sha256 | awk '{print $2}')"
             [ "$github_fingerprint" = 'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU' ]
             chmod 600 /opt/agent-office-hq-secrets/github_known_hosts
