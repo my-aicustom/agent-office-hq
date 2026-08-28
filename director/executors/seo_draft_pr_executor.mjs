@@ -14,6 +14,7 @@ export class SeoDraftPrExecutor {
     workRoot = process.env.SEO_TARGET_WORK_ROOT || path.resolve('data/executor-workspaces'),
     sshKeyPath = process.env.SEO_TARGET_SSH_KEY_PATH,
     knownHostsPath = process.env.SEO_TARGET_KNOWN_HOSTS_PATH,
+    githubApiToken = process.env.SEO_TARGET_GITHUB_API_TOKEN,
     sshHost = process.env.SEO_TARGET_SSH_HOST || 'github.com',
     sshPort = Number(process.env.SEO_TARGET_SSH_PORT || 22),
     fetchFn = globalThis.fetch,
@@ -28,6 +29,7 @@ export class SeoDraftPrExecutor {
     this.workRoot = path.resolve(workRoot);
     this.sshKeyPath = sshKeyPath;
     this.knownHostsPath = knownHostsPath;
+    this.githubApiToken = githubApiToken;
     this.sshHost = sshHost;
     this.sshPort = sshPort;
     this.fetchFn = fetchFn;
@@ -163,14 +165,16 @@ Proses ${keyword} yang terkendali dimulai dari spesifikasi yang dapat diperiksa.
     const deadline = Date.now() + this.pollTimeoutMs;
     while (Date.now() < deadline) {
       const listUrl = `https://api.github.com/repos/${this.repositorySlug}/pulls?state=open&head=${encodeURIComponent(`${owner}:${branchName}`)}`;
-      const response = await this.fetchFn(listUrl, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-seo-executor' } });
+      const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-seo-executor' };
+      if (this.githubApiToken) headers.Authorization = `Bearer ${this.githubApiToken}`;
+      const response = await this.fetchFn(listUrl, { headers });
       if (!response.ok) throw new Error(`GitHub PR lookup failed with HTTP ${response.status}.`);
       const pulls = await response.json();
       const pr = pulls[0];
       if (pr) {
         if (pr.draft !== true) throw new Error('SEO executor refuses a non-draft pull request.');
         if (pr.head?.sha !== commitSha || pr.base?.ref !== this.baseBranch) throw new Error('Draft PR SHA or base branch does not match executor evidence.');
-        const filesResponse = await this.fetchFn(pr.url + '/files', { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-seo-executor' } });
+        const filesResponse = await this.fetchFn(pr.url + '/files', { headers });
         if (!filesResponse.ok) throw new Error(`GitHub PR file lookup failed with HTTP ${filesResponse.status}.`);
         const files = await filesResponse.json();
         if (files.length !== 1 || files[0]?.filename !== targetPath) throw new Error('Draft PR changed files outside the SEO content boundary.');
