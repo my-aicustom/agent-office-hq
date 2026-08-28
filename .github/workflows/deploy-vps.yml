@@ -125,10 +125,20 @@ jobs:
             fi
 
             if docker container inspect agent-office-hq >/dev/null 2>&1; then
-              docker rename agent-office-hq "$rollback_name"
-              docker stop "$rollback_name" >/dev/null
+              if docker exec agent-office-hq wget -qO- http://127.0.0.1:3333/healthz >/dev/null 2>&1; then
+                docker rename agent-office-hq "$rollback_name"
+                docker stop "$rollback_name" >/dev/null
+                docker network disconnect coolify "$rollback_name" 2>/dev/null || true
+              else
+                echo "Existing production container is unhealthy; it cannot be used as rollback."
+                docker rm -f agent-office-hq >/dev/null
+              fi
             fi
             docker rename "$candidate_name" agent-office-hq
+            # Docker keeps the candidate's old DNS alias after rename. Reconnect
+            # explicitly so the reverse proxy resolves the production name.
+            docker network disconnect coolify agent-office-hq
+            docker network connect --alias agent-office-hq coolify agent-office-hq
             docker update --restart always agent-office-hq >/dev/null
             docker exec agent-office-hq wget -qO- http://127.0.0.1:3333/healthz >/dev/null
             echo "Candidate promoted; rollback container retained until public verification passes."
@@ -163,6 +173,7 @@ jobs:
             if docker container inspect agent-office-hq-rollback >/dev/null 2>&1; then
               docker rm -f agent-office-hq 2>/dev/null || true
               docker rename agent-office-hq-rollback agent-office-hq
+              docker network connect --alias agent-office-hq coolify agent-office-hq
               docker update --restart always agent-office-hq >/dev/null
               docker start agent-office-hq >/dev/null
               echo "Previous production container restored."
