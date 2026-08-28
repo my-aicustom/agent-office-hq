@@ -1,0 +1,105 @@
+name: Production SEO Draft PR E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify live quorum, executor push, and Draft PR evidence
+        env:
+          HQ_PASSWORD: ${{ secrets.HQ_PASSWORD }}
+          BASE_URL: https://seo.tepatlaser.com
+        run: |
+          node <<'NODE'
+          const baseUrl = process.env.BASE_URL;
+          const password = process.env.HQ_PASSWORD;
+          if (!password) throw new Error('HQ_PASSWORD secret is missing.');
+
+          const requestJson = async (urlOrPath, options = {}) => {
+            const url = urlOrPath.startsWith('http') ? urlOrPath : `${baseUrl}${urlOrPath}`;
+            const response = await fetch(url, options);
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(`${urlOrPath} returned HTTP ${response.status}: ${body.message || 'unknown error'}`);
+            return body;
+          };
+
+          const login = await requestJson('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password })
+          });
+          if (!login.token) throw new Error('Production login returned no token.');
+          const headers = { Authorization: `Bearer ${login.token}`, 'Content-Type': 'application/json' };
+
+          const keyword = 'checklist serah terima hasil laser cutting';
+          const trigger = await requestJson('/api/cases/trigger', {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              title: 'SEO Draft PR Production Proof',
+              type: 'OPPORTUNITY:SEO_DRAFT_PR_E2E',
+              severity: 'LOW',
+              source: `github_seo_pr_e2e_${Date.now()}`,
+              error: 'Create a review-only SEO content proposal; never merge or publish automatically.',
+              metadata: {
+                requestedActionType: 'SEO_OPPORTUNITY_OPTIMIZE',
+                keyword,
+                intent: 'informational',
+                cluster: 'quality-control'
+              }
+            })
+          });
+
+          const casePacket = trigger.result;
+          if (!casePacket?.caseId || !casePacket?.dispatchedTaskId) throw new Error('Case did not dispatch an executable task.');
+          if (casePacket.quorum?.status !== 'QUORUM_MET') throw new Error(`Quorum was not met: ${casePacket.quorum?.status}`);
+
+          let task;
+          for (let attempt = 0; attempt < 120; attempt += 1) {
+            const response = await requestJson('/api/director/tasks?limit=100', { headers });
+            task = (response.tasks || []).find(item => item.id === casePacket.dispatchedTaskId);
+            if (task && ['AWAITING_REVIEW', 'FAILED', 'BLOCKED', 'ESCALATED'].includes(task.state)) break;
+            await new Promise(resolve => setTimeout(resolve, 10_000));
+          }
+          if (task?.state !== 'AWAITING_REVIEW' || task.output?.status !== 'VERIFIED') {
+            throw new Error(`SEO executor did not reach AWAITING_REVIEW; state=${task?.state || 'missing'} reason=${task?.history?.at(-1)?.reason || 'unknown'}`);
+          }
+
+          const evidence = (task.output.evidence || []).find(item => item.kind === 'DRAFT_PULL_REQUEST');
+          if (!evidence?.draft || !evidence.prUrl || !/^[a-f0-9]{40}$/.test(evidence.commitSha || '')) {
+            throw new Error('Task lacks valid Draft PR evidence.');
+          }
+          const pr = await requestJson(`https://api.github.com/repos/heriscaleup/tepatlaser/pulls/${evidence.prNumber}`, {
+            headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-production-e2e' }
+          });
+          if (!pr.draft || pr.state !== 'open' || pr.head?.sha !== evidence.commitSha || pr.base?.ref !== 'main') {
+            throw new Error('GitHub PR state does not match persisted task evidence.');
+          }
+          const files = await requestJson(`https://api.github.com/repos/heriscaleup/tepatlaser/pulls/${evidence.prNumber}/files`, {
+            headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-production-e2e' }
+          });
+          if (files.length !== 1 || files[0]?.filename !== evidence.targetPath || !/^src\/content\/blog\/[^/]+\.md$/.test(evidence.targetPath)) {
+            throw new Error('Draft PR changed files outside the content allowlist.');
+          }
+
+          console.log(JSON.stringify({
+            caseId: casePacket.caseId,
+            quorumStatus: casePacket.quorum.status,
+            approvedProviders: casePacket.quorum.approvedProviders,
+            totalTokens: casePacket.budget?.totalTokensUsed,
+            estimatedCostIdr: casePacket.budget?.totalCostIdr,
+            taskId: task.id,
+            taskState: task.state,
+            repository: evidence.repository,
+            targetPath: evidence.targetPath,
+            branchName: evidence.branchName,
+            commitSha: evidence.commitSha,
+            artifactHash: evidence.artifactHash,
+            prNumber: evidence.prNumber,
+            prUrl: evidence.prUrl,
+            draft: pr.draft
+          }, null, 2));
+          NODE

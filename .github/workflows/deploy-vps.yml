@@ -24,19 +24,23 @@ jobs:
           HQ_AUTH_SECRET: ${{ secrets.HQ_AUTH_SECRET }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SEO_TARGET_SSH_PRIVATE_KEY_B64: ${{ secrets.SEO_TARGET_SSH_PRIVATE_KEY_B64 }}
         run: |
-          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USERNAME" ] || [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$HQ_PASSWORD" ] || [ -z "$HQ_AUTH_SECRET" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$OPENROUTER_API_KEY" ]; then
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USERNAME" ] || [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$HQ_PASSWORD" ] || [ -z "$HQ_AUTH_SECRET" ] || [ -z "$GEMINI_API_KEY" ] || [ -z "$OPENROUTER_API_KEY" ] || [ -z "$SEO_TARGET_SSH_PRIVATE_KEY_B64" ]; then
             echo "::error::Missing one or more required production secrets."
             exit 1
           fi
 
       - name: Deploy to VPS via SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          SEO_TARGET_SSH_PRIVATE_KEY_B64: ${{ secrets.SEO_TARGET_SSH_PRIVATE_KEY_B64 }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
+          envs: SEO_TARGET_SSH_PRIVATE_KEY_B64
           script: |
             set -eu
             if [ "$(id -u)" -ne 0 ]; then
@@ -87,6 +91,19 @@ jobs:
               rm -rf /tmp/agent-hq-clone
             fi
 
+            # Repo-scoped write key for the SEO Draft-PR executor. GitHub's
+            # official Ed25519 host fingerprint is pinned to prevent MITM.
+            umask 077
+            mkdir -p /opt/agent-office-hq-secrets
+            printf '%s' "$SEO_TARGET_SSH_PRIVATE_KEY_B64" | base64 -d > /opt/agent-office-hq-secrets/seo_target_ed25519
+            chmod 600 /opt/agent-office-hq-secrets/seo_target_ed25519
+            ssh-keyscan -t ed25519 github.com > /opt/agent-office-hq-secrets/github_known_hosts 2>/dev/null
+            github_fingerprint="$(ssh-keygen -lf /opt/agent-office-hq-secrets/github_known_hosts -E sha256 | awk '{print $2}')"
+            [ "$github_fingerprint" = 'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU' ]
+            chmod 600 /opt/agent-office-hq-secrets/github_known_hosts
+
+            docker build -t "agent-office-hq:${{ github.sha }}" .
+
             # Recreate Docker container
             echo "🔄 [CI/CD] Recreating Docker container agent-office-hq..."
             candidate_name="agent-office-hq-candidate"
@@ -97,17 +114,27 @@ jobs:
             # Start the new release without terminating the current container.
             docker run -d --name "$candidate_name" --restart no --network coolify \
               -v /opt/agent-office-hq:/app -w /app \
+              -v /opt/agent-office-hq-secrets/seo_target_ed25519:/run/secrets/seo_target_ed25519:ro \
+              -v /opt/agent-office-hq-secrets/github_known_hosts:/run/secrets/github_known_hosts:ro \
               -e PORT=3333 \
               -e APP_COMMIT_SHA="${{ github.sha }}" \
               -e HQ_PASSWORD="${{ secrets.HQ_PASSWORD }}" \
               -e HQ_AUTH_SECRET="${{ secrets.HQ_AUTH_SECRET }}" \
               -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
               -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+              -e SEO_PR_EXECUTOR_ENABLED=true \
+              -e SEO_TARGET_REPOSITORY=git@github.com:heriscaleup/tepatlaser.git \
+              -e SEO_TARGET_REPOSITORY_SLUG=heriscaleup/tepatlaser \
+              -e SEO_TARGET_BASE_BRANCH=main \
+              -e SEO_TARGET_CONTENT_DIR=src/content/blog \
+              -e SEO_TARGET_WORK_ROOT=/app/data/executor-workspaces \
+              -e SEO_TARGET_SSH_KEY_PATH=/run/secrets/seo_target_ed25519 \
+              -e SEO_TARGET_KNOWN_HOSTS_PATH=/run/secrets/github_known_hosts \
               -e NODE_ENV=production \
               -e TRUST_PROXY=true \
               --health-cmd="wget -qO- http://127.0.0.1:3333/healthz >/dev/null || exit 1" \
               --health-interval=15s --health-timeout=5s --health-retries=3 \
-              node:24-alpine node server.mjs
+              "agent-office-hq:${{ github.sha }}"
 
             candidate_ready=false
             for attempt in 1 2 3 4 5 6 7 8 9 10; do

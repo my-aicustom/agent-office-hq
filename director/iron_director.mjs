@@ -10,6 +10,7 @@ import { QuorumEngine } from './quorum_engine.mjs';
 import { ActiveTaskConsumer } from './active_task_consumer.mjs';
 import { SharedCaseBus } from './shared_case_bus.mjs';
 import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
+import { SeoDraftPrExecutor } from './executors/seo_draft_pr_executor.mjs';
 
 export class IronDirector {
   constructor({
@@ -32,7 +33,8 @@ export class IronDirector {
     // 2. Strict Quorum Engine (Zero fake consensus)
     this.quorumEngine = new QuorumEngine({ minLiveProviders: 2 });
 
-    const seoExecutor = new SeoPageExecutor();
+    const seoDraftPrEnabled = process.env.SEO_PR_EXECUTOR_ENABLED === 'true';
+    const seoExecutor = seoDraftPrEnabled ? new SeoDraftPrExecutor() : new SeoPageExecutor();
 
     // 3. Evidence-gated task consumer (unconfigured mutations fail closed)
     this.consumer = new ActiveTaskConsumer({
@@ -41,15 +43,36 @@ export class IronDirector {
       workerId: 'hermes-worker-primary',
       executors: {
         SEO_OPPORTUNITY_OPTIMIZE: async (task) => {
-          const keyword = task.input?.keyword || task.title?.replace(/^.*:\s*/, '') || 'jasa-laser-cutting-custom';
+          const metadata = task.input?.metadata || {};
+          const keyword = task.input?.keyword || metadata.keyword || task.title?.replace(/^.*:\s*/, '') || 'jasa-laser-cutting-custom';
           const result = await seoExecutor.execute({
             taskId: task.id,
             keyword,
-            intent: task.input?.intent || 'commercial',
-            cluster: task.input?.cluster || 'stainless',
-            targetUrl: task.input?.targetUrl || null,
-            gscEvidence: task.input?.gscEvidence || null
+            intent: task.input?.intent || metadata.intent || 'commercial',
+            cluster: task.input?.cluster || metadata.cluster || 'stainless',
+            targetUrl: task.input?.targetUrl || metadata.targetUrl || null,
+            gscEvidence: task.input?.gscEvidence || metadata.gscEvidence || null
           });
+          if (seoDraftPrEnabled) {
+            return {
+              actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
+              status: 'VERIFIED',
+              nextState: TASK_STATES.AWAITING_REVIEW,
+              externalEffect: 'DRAFT_PULL_REQUEST_CREATED',
+              evidence: [{
+                kind: 'DRAFT_PULL_REQUEST',
+                repository: process.env.SEO_TARGET_REPOSITORY_SLUG,
+                targetPath: result.targetPath,
+                artifactHash: result.artifactHash,
+                branchName: result.branchName,
+                commitSha: result.commitSha,
+                prNumber: result.pullRequest.number,
+                prUrl: result.pullRequest.url,
+                draft: result.pullRequest.draft,
+                verifiedAt: new Date().toISOString()
+              }]
+            };
+          }
           return {
             actionType: 'SEO_OPPORTUNITY_OPTIMIZE',
             status: 'VERIFIED',
