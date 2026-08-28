@@ -101,7 +101,8 @@ jobs:
             # this is GitHub's published Ed25519 host key, pinned verbatim.
             printf '%s\n' 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' > /opt/agent-office-hq-secrets/github_known_hosts
             printf '%s\n' 'ssh.github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> /opt/agent-office-hq-secrets/github_known_hosts
-            github_fingerprint="$(ssh-keygen -lf /opt/agent-office-hq-secrets/github_known_hosts -E sha256 | awk '{print $2}')"
+            awk 'NR == 1 { print $2 " " $3 }' /opt/agent-office-hq-secrets/github_known_hosts > /opt/agent-office-hq-secrets/github_host.pub
+            github_fingerprint="$(ssh-keygen -lf /opt/agent-office-hq-secrets/github_host.pub -E sha256 | awk '{print $2}')"
             [ "$github_fingerprint" = 'SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU' ]
             chmod 600 /opt/agent-office-hq-secrets/github_known_hosts
 
