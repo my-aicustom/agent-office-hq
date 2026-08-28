@@ -14,6 +14,8 @@ export class SeoDraftPrExecutor {
     workRoot = process.env.SEO_TARGET_WORK_ROOT || path.resolve('data/executor-workspaces'),
     sshKeyPath = process.env.SEO_TARGET_SSH_KEY_PATH,
     knownHostsPath = process.env.SEO_TARGET_KNOWN_HOSTS_PATH,
+    sshHost = process.env.SEO_TARGET_SSH_HOST || 'github.com',
+    sshPort = Number(process.env.SEO_TARGET_SSH_PORT || 22),
     fetchFn = globalThis.fetch,
     execFn = null,
     pollIntervalMs = 10_000,
@@ -26,6 +28,8 @@ export class SeoDraftPrExecutor {
     this.workRoot = path.resolve(workRoot);
     this.sshKeyPath = sshKeyPath;
     this.knownHostsPath = knownHostsPath;
+    this.sshHost = sshHost;
+    this.sshPort = sshPort;
     this.fetchFn = fetchFn;
     this.execFn = execFn || this._exec.bind(this);
     this.pollIntervalMs = pollIntervalMs;
@@ -46,15 +50,17 @@ export class SeoDraftPrExecutor {
     if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(this.repositorySlug)) throw new Error('Invalid SEO target repository slug.');
     if (!/^[a-z0-9._/-]+$/i.test(this.baseBranch) || this.baseBranch.includes('..')) throw new Error('Invalid SEO target base branch.');
     if (this.contentDir !== 'src/content/blog') throw new Error('SEO executor content boundary must be src/content/blog.');
+    if (!['github.com', 'ssh.github.com'].includes(this.sshHost) || ![22, 443].includes(this.sshPort)) throw new Error('Invalid SEO target SSH endpoint.');
     if (!fs.existsSync(this.sshKeyPath) || !fs.existsSync(this.knownHostsPath)) throw new Error('SEO target SSH material is unavailable.');
   }
 
   _gitEnvironment() {
     const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
+    const hostAlias = this.sshHost === 'ssh.github.com' ? 'ssh.github.com' : 'github.com';
     return {
       ...process.env,
       GIT_TERMINAL_PROMPT: '0',
-      GIT_SSH_COMMAND: `ssh -i ${quote(this.sshKeyPath)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${quote(this.knownHostsPath)}`
+      GIT_SSH_COMMAND: `ssh -p ${this.sshPort} -o HostName=${this.sshHost} -o HostKeyAlias=${hostAlias} -i ${quote(this.sshKeyPath)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${quote(this.knownHostsPath)}`
     };
   }
 
