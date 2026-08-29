@@ -16,7 +16,12 @@ function interactionResponse(text, overrides = {}) {
     id: 'int_test_123',
     status: 'completed',
     steps: [{ type: 'model_output', content: [{ type: 'text', text }] }],
-    usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 },
+    usage: {
+      total_input_tokens: 100,
+      total_output_tokens: 40,
+      total_thought_tokens: 10,
+      total_tokens: 140
+    },
     ...overrides
   };
 }
@@ -38,6 +43,10 @@ test('GeminiProvider uses the current Interactions API with a strict JSON schema
   assert.equal(result.model, 'gemini-3.7-flash');
   assert.deepEqual(JSON.parse(result.text), JSON.parse(validVote));
   assert.equal(result.outboundEvidence.api, 'interactions');
+  assert.equal(result.usage.promptTokens, 100);
+  assert.equal(result.usage.completionTokens, 40);
+  assert.equal(result.usage.visibleCompletionTokens, 30);
+  assert.equal(result.usage.thinkingTokens, 10);
   assert.equal(result.usage.totalTokens, 140);
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://generativelanguage.googleapis.com/v1beta/interactions');
