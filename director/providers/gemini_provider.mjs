@@ -33,15 +33,19 @@ function interactionText(data) {
 
 function normalizedUsage(data, fallback = {}) {
   const usage = data?.usage || data?.usageMetadata || {};
-  const promptTokens = usage.prompt_tokens ?? usage.promptTokenCount ?? fallback.promptTokens ?? 0;
-  const visibleCompletionTokens = usage.completion_tokens ?? usage.candidatesTokenCount ?? fallback.visibleCompletionTokens ?? 0;
-  const thinkingTokens = usage.thoughts_tokens ?? usage.thoughtsTokenCount ?? fallback.thinkingTokens ?? 0;
+  const promptTokens = usage.total_input_tokens ?? usage.prompt_tokens ?? usage.promptTokenCount ?? fallback.promptTokens ?? 0;
+  const thinkingTokens = usage.total_thought_tokens ?? usage.thoughts_tokens ?? usage.thoughtsTokenCount ?? fallback.thinkingTokens ?? 0;
+  const legacyVisibleTokens = usage.completion_tokens ?? usage.candidatesTokenCount ?? fallback.visibleCompletionTokens ?? 0;
+  const completionTokens = usage.total_output_tokens ?? (legacyVisibleTokens + thinkingTokens);
+  const visibleCompletionTokens = usage.total_output_tokens === undefined
+    ? legacyVisibleTokens
+    : Math.max(0, completionTokens - thinkingTokens);
   return {
     promptTokens,
-    completionTokens: visibleCompletionTokens + thinkingTokens,
+    completionTokens,
     visibleCompletionTokens,
     thinkingTokens,
-    totalTokens: usage.total_tokens ?? usage.totalTokenCount ?? (promptTokens + visibleCompletionTokens + thinkingTokens)
+    totalTokens: usage.total_tokens ?? usage.totalTokenCount ?? (promptTokens + completionTokens)
   };
 }
 
