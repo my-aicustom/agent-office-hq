@@ -11,6 +11,8 @@ import { ActiveTaskConsumer } from './active_task_consumer.mjs';
 import { SharedCaseBus } from './shared_case_bus.mjs';
 import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
 import { SeoDraftPrExecutor } from './executors/seo_draft_pr_executor.mjs';
+import { GoldenAutonomyScheduler } from './golden_autonomy_scheduler.mjs';
+import { PrLifecycleMonitor } from './pr_lifecycle_monitor.mjs';
 
 export class IronDirector {
   constructor({
@@ -18,7 +20,10 @@ export class IronDirector {
     circuitBreaker = new CircuitBreaker(),
     providerRouter = null,
     config = DEFAULT_DIRECTOR_CONFIG,
-    telegramNotifier = null
+    telegramNotifier = null,
+    nadiaAgent = null,
+    autonomyScheduler = null,
+    prLifecycleMonitor = null
   } = {}) {
     this.ledger = ledger || new TaskLedgerDb();
     this.circuitBreaker = circuitBreaker;
@@ -113,6 +118,15 @@ export class IronDirector {
         console.error(`[IronDirector] Case Bus auto-process error: ${err.message}`);
       }
     });
+
+    // 6. Golden loop scheduler and post-review lifecycle closer. Both are
+    // disabled unless production opts in explicitly through environment flags.
+    this.autonomyScheduler = autonomyScheduler || new GoldenAutonomyScheduler({
+      nadiaAgent,
+      caseBus: this.caseBus,
+      ledger: this.ledger
+    });
+    this.prLifecycleMonitor = prLifecycleMonitor || new PrLifecycleMonitor({ ledger: this.ledger });
   }
 
   /**
@@ -312,6 +326,8 @@ export class IronDirector {
     }
     // 2. Start Active Task Consumer
     this.consumer.start();
+    this.autonomyScheduler.start();
+    this.prLifecycleMonitor.start();
     console.log(`[IronDirector] Daemon active with Sentry, Quorum Engine & Active Consumer.`);
   }
 
@@ -321,6 +337,8 @@ export class IronDirector {
       this.reconcileTimer = null;
     }
     this.consumer.stop();
+    this.autonomyScheduler.stop();
+    this.prLifecycleMonitor.stop();
   }
 
   getTelemetry() {
@@ -345,7 +363,9 @@ export class IronDirector {
         totalCostIdr: Math.round(totalCostIdr * 100) / 100,
         totalTokens
       },
-      providers: this.providerRouter.getTelemetry()
+      providers: this.providerRouter.getTelemetry(),
+      autonomy: this.autonomyScheduler.getStatus(),
+      prLifecycle: this.prLifecycleMonitor.getStatus()
     };
   }
 }

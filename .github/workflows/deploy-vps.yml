@@ -37,12 +37,13 @@ jobs:
         env:
           SEO_TARGET_SSH_PRIVATE_KEY_B64: ${{ secrets.SEO_TARGET_SSH_PRIVATE_KEY_B64 }}
           SEO_TARGET_GITHUB_API_TOKEN: ${{ secrets.SEO_TARGET_GITHUB_API_TOKEN }}
+          GSC_SERVICE_ACCOUNT_JSON: ${{ secrets.GSC_SERVICE_ACCOUNT_JSON }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 22
-          envs: SEO_TARGET_SSH_PRIVATE_KEY_B64,SEO_TARGET_GITHUB_API_TOKEN
+          envs: SEO_TARGET_SSH_PRIVATE_KEY_B64,SEO_TARGET_GITHUB_API_TOKEN,GSC_SERVICE_ACCOUNT_JSON
           script: |
             set -eu
             if [ "$(id -u)" -ne 0 ]; then
@@ -139,6 +140,14 @@ jobs:
               -e SEO_TARGET_SSH_HOST=ssh.github.com \
               -e SEO_TARGET_SSH_PORT=443 \
               -e SEO_TARGET_GITHUB_API_TOKEN="$SEO_TARGET_GITHUB_API_TOKEN" \
+              -e GSC_SERVICE_ACCOUNT_JSON="$GSC_SERVICE_ACCOUNT_JSON" \
+              -e GOLDEN_AUTONOMY_ENABLED=true \
+              -e GOLDEN_AUTONOMY_RUN_ON_START=true \
+              -e GOLDEN_AUTONOMY_INTERVAL_MS=21600000 \
+              -e GOLDEN_AUTONOMY_MAX_DISPATCHES=1 \
+              -e PR_LIFECYCLE_MONITOR_ENABLED=true \
+              -e PR_LIFECYCLE_MONITOR_INTERVAL_MS=300000 \
+              -e SEO_PRODUCTION_BASE_URL=https://tepatlaser.com \
               -e NODE_ENV=production \
               -e TRUST_PROXY=true \
               --health-cmd="wget -qO- http://127.0.0.1:3333/healthz >/dev/null || exit 1" \
@@ -184,7 +193,7 @@ jobs:
           EXPECTED_SHA: ${{ github.sha }}
         run: |
           response="$(curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 https://seo.tepatlaser.com/healthz)"
-          node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="READY" || body.commitSha!==process.env.EXPECTED_SHA || !body.providers?.gemini || !body.providers?.openrouter) process.exit(1);' "$response"
+          node -e 'const body=JSON.parse(process.argv[1]); if(body.status!=="READY" || body.commitSha!==process.env.EXPECTED_SHA || !body.providers?.gemini || !body.providers?.openrouter || !body.dataSources?.gsc || !body.autonomy?.enabled || !body.prLifecycle?.enabled || !body.prLifecycle?.configured) process.exit(1);' "$response"
 
       - name: Remove rollback container after successful verification
         if: success()

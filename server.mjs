@@ -50,7 +50,7 @@ if (missingRuntimeVariables.length > 0) {
   process.exit(1);
 }
 
-export const ironDirector = new IronDirector();
+export const ironDirector = new IronDirector({ nadiaAgent });
 ironDirector.startDaemon();
 
 const MIME_TYPES = {
@@ -334,6 +334,20 @@ const server = http.createServer(async (req, res) => {
         gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         openrouter: Boolean(process.env.OPENROUTER_API_KEY),
         claude: Boolean(process.env.ANTHROPIC_API_KEY)
+      },
+      dataSources: {
+        gsc: isGscConfigured()
+      },
+      autonomy: {
+        enabled: ironDirector.autonomyScheduler.enabled,
+        running: ironDirector.autonomyScheduler.running,
+        lastRunStatus: ironDirector.autonomyScheduler.lastRun?.status || null
+      },
+      prLifecycle: {
+        enabled: ironDirector.prLifecycleMonitor.enabled,
+        configured: Boolean(ironDirector.prLifecycleMonitor.githubToken),
+        running: ironDirector.prLifecycleMonitor.running,
+        lastSweepStatus: ironDirector.prLifecycleMonitor.lastSweep?.status || null
       },
       uptimeSeconds: Math.round(process.uptime())
     }));
@@ -805,6 +819,43 @@ const server = http.createServer(async (req, res) => {
         const result = ironDirector.reconcile();
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'success', ...result }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
+      return;
+    }
+
+    if (reqPath === '/api/director/autonomy' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        status: 'success',
+        scheduler: ironDirector.autonomyScheduler.getStatus(),
+        prLifecycle: ironDirector.prLifecycleMonitor.getStatus()
+      }, null, 2));
+      return;
+    }
+
+    if (reqPath === '/api/director/autonomy/run' && req.method === 'POST') {
+      try {
+        const result = await ironDirector.autonomyScheduler.runOnce();
+        res.setHeader('Cache-Control', 'no-store');
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', result }, null, 2));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+      }
+      return;
+    }
+
+    if (reqPath === '/api/director/pr-lifecycle/run' && req.method === 'POST') {
+      try {
+        const result = await ironDirector.prLifecycleMonitor.runOnce();
+        res.setHeader('Cache-Control', 'no-store');
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'success', result }, null, 2));
       } catch (error) {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
