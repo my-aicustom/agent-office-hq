@@ -46,8 +46,8 @@
       <div class="brand">
         <span class="pixel-indicator pulse"></span>
         <span class="pixel-title">TEPATLASER AI SWARM HQ</span>
-        <span class="badge-vps">VPS 163.61.44.41: ONLINE</span>
-        <span class="badge-geo">GEO CHATGPT READY</span>
+        <span class="badge-vps" id="header-vps-status">VPS: UNKNOWN</span>
+        <span class="badge-geo" id="header-source-status">GSC: UNKNOWN</span>
       </div>
 
       <!-- View Navigation Tabs -->
@@ -59,22 +59,22 @@
           <span>📊</span> EXECUTIVE KPI & GEO ROOM
         </button>
         <button id="tab-warroom" class="tab-btn tab-warroom-highlight" onclick="switchView('warroom')">
-          <span>🚨</span> 4-BRAIN WAR ROOM & LEDGER
+          <span>◈</span> AUTONOMOUS OPS CONTROL ROOM
         </button>
       </div>
 
       <div class="stats-bar">
         <div class="stat-item">
           <span class="label">GA4 PROPERTIES:</span>
-          <span class="value text-green">3 SYNCED</span>
+          <span class="value text-green">UNVERIFIED</span>
         </div>
         <div class="stat-item">
           <span class="label">GEO VISIBILITY:</span>
-          <span class="value text-cyan">94%</span>
+          <span class="value text-cyan">UNVERIFIED</span>
         </div>
         <div class="stat-item">
           <span class="label">PAGES LIVE:</span>
-          <span class="value text-yellow" id="header-live-pages">107</span>
+          <span class="value text-yellow" id="header-live-pages">UNKNOWN</span>
         </div>
         <div class="header-controls">
           <button id="btn-sound" class="btn-pixel-small" title="Toggle 8-Bit Audio">🔊 FX ON</button>
@@ -309,35 +309,49 @@
         </div>
       </section>
 
-      <!-- 3. Autonomous 4-Brain War Room & Task Ledger Section -->
+      <!-- 3. Autonomous Operations Control Room -->
       <section id="view-warroom-section" class="warroom-section hidden">
-        
-        <!-- Top Hero Banner: Large, Crisp, Roomy -->
-        <div class="warroom-hero-banner">
-          <div class="warroom-hero-left">
-            <div class="warroom-badge-live">
-              <span class="pulse-dot-red"></span>
-              <span class="font-pixel">AUTONOMOUS SENTRY & 4-BRAIN WAR ROOM</span>
+        <div class="ops-hero">
+          <div class="ops-hero-copy">
+            <div class="ops-kicker"><span class="ops-signal"></span> AUTONOMOUS OPERATIONS CONTROL ROOM</div>
+            <div class="ops-title-row">
+              <h2>BUKTI KERJA, BUKAN ANIMASI.</h2>
+              <span id="ops-system-mode" class="ops-mode mode-unknown">UNKNOWN</span>
             </div>
-            <h2 class="warroom-main-title">DEWAN DIREKSI & RECOVERY COUNCIL</h2>
-            <p class="warroom-main-subtitle">
-              Case Bus memverifikasi vote independen Gemini, Claude, dan OpenRouter sebelum Hermes mengantrekan tindakan. Aksi mutasi tanpa executor dan bukti eksternal otomatis diblokir.
-            </p>
+            <p>Setiap status berasal dari Task Ledger, Case Bus, outbound provider evidence, CI, Draft PR, dan production read-back.</p>
+            <div id="ops-dependency-errors" class="ops-dependency-errors hidden"></div>
           </div>
-          <div class="warroom-hero-actions">
-            <button class="btn-warroom-trigger btn-warroom-red" onclick="triggerWarRoomDrill('INCIDENT:PROVIDER_FAILURE', 'Simulasi 503 Provider Outage (Failover Test)', 'Gemini API 503 High Demand Spike')">
-              ⚡ DRILL: 503 OUTAGE
-            </button>
-            <button class="btn-warroom-trigger btn-warroom-yellow" onclick="triggerWarRoomDrill('INCIDENT:WORKER_STALLED', 'Simulasi Worker Stalled (Heartbeat Timeout)', 'Worker lost heartbeat > 120s')">
-              🔄 DRILL: STALLED WORKER
-            </button>
-            <button class="btn-warroom-trigger btn-warroom-cyan" onclick="triggerWarRoomDrill('OPPORTUNITY:KEYWORD_PAGE_ONE', 'Simulasi Peluang SEO Page 1 Jump', 'Keyword cutting acp at pos 7.2')">
-              🎯 DRILL: SEO OPPORTUNITY
-            </button>
-            <button class="btn-warroom-refresh" onclick="refreshWarRoomData()" title="Refresh Live Data">
-              🔄 REFRESH
-            </button>
+          <div class="ops-hero-actions">
+            <div class="ops-freshness"><span>SNAPSHOT</span><strong id="ops-generated-at">BELUM DIMUAT</strong></div>
+            <a class="ops-link-button" href="/healthz" target="_blank" rel="noopener">PUBLIC HEALTH</a>
+            <button id="ops-refresh-button" class="btn-warroom-refresh" onclick="refreshWarRoomData()">REFRESH EVIDENCE</button>
           </div>
+        </div>
+
+        <div class="ops-command-grid">
+          <article class="ops-command-card"><span class="ops-card-index">01 / RUNTIME</span><strong id="ops-runtime-status">UNKNOWN</strong><p id="ops-runtime-detail">Menunggu telemetry VPS.</p></article>
+          <article class="ops-command-card"><span class="ops-card-index">02 / SCHEDULER</span><strong id="ops-scheduler-status">UNKNOWN</strong><p id="ops-scheduler-detail">Belum ada run evidence.</p></article>
+          <article class="ops-command-card"><span class="ops-card-index">03 / PIPELINE</span><strong id="ops-pipeline-status">0 ACTIVE</strong><p id="ops-pipeline-detail">Ledger belum dimuat.</p></article>
+          <article class="ops-command-card ops-command-proof"><span class="ops-card-index">04 / VERIFIED SPEND</span><strong id="ops-proof-status">0 TOKENS</strong><p id="ops-proof-detail">Rp0 / 0 live provider.</p></article>
+        </div>
+
+        <div class="ops-pipeline-rail" aria-label="Autonomous task pipeline">
+          <div class="ops-stage"><span>01</span><b>QUEUED</b><strong id="ops-stage-queued">0</strong></div>
+          <div class="ops-stage"><span>02</span><b>EXECUTING</b><strong id="ops-stage-executing">0</strong></div>
+          <div class="ops-stage"><span>03</span><b>HUMAN GATE</b><strong id="ops-stage-review">0</strong></div>
+          <div class="ops-stage"><span>04</span><b>DEPLOYED</b><strong id="ops-stage-deployed">0</strong></div>
+          <div class="ops-stage"><span>05</span><b>DONE + PROOF</b><strong id="ops-stage-done">0</strong></div>
+        </div>
+
+        <div class="ops-section-heading">
+          <div><span class="ops-eyebrow">SHIFT BOARD</span><h3>KARYAWAN AI & GATE OPERASIONAL</h3></div>
+          <span class="ops-section-note">IDLE berarti sehat dan menunggu pekerjaan.</span>
+        </div>
+        <div id="ops-agent-grid" class="ops-agent-grid"><div class="loading-state">Memuat evidence karyawan AI...</div></div>
+
+        <div class="ops-section-heading">
+          <div><span class="ops-eyebrow">OUTBOUND QUORUM</span><h3>PROVIDER EVIDENCE RADAR</h3></div>
+          <span class="ops-section-note">READY tanpa call bukan VERIFIED.</span>
         </div>
 
         <!-- Provider Health & Circuit Breakers Radar -->
@@ -351,7 +365,7 @@
                   <span class="circuit-role">Scout & Rapid Diagnostic</span>
                 </div>
               </div>
-              <span class="circuit-badge badge-closed" id="badge-circuit-gemini">HEALTHY</span>
+              <span class="circuit-badge badge-unknown" id="badge-circuit-gemini">UNKNOWN</span>
             </div>
             <div class="circuit-stats-row">
               <div class="stat-box">
@@ -364,7 +378,7 @@
               </div>
               <div class="stat-box">
                 <span class="stat-lbl">CIRCUIT</span>
-                <span class="stat-val text-green" id="stat-state-gemini">CLOSED</span>
+                <span class="stat-val" id="stat-state-gemini">UNKNOWN</span>
               </div>
             </div>
           </div>
@@ -378,7 +392,7 @@
                   <span class="circuit-role">Chief Architect & Strategist</span>
                 </div>
               </div>
-              <span class="circuit-badge badge-closed" id="badge-circuit-claude">HEALTHY</span>
+              <span class="circuit-badge badge-unknown" id="badge-circuit-claude">UNKNOWN</span>
             </div>
             <div class="circuit-stats-row">
               <div class="stat-box">
@@ -391,7 +405,7 @@
               </div>
               <div class="stat-box">
                 <span class="stat-lbl">CIRCUIT</span>
-                <span class="stat-val text-green" id="stat-state-claude">CLOSED</span>
+                <span class="stat-val" id="stat-state-claude">UNKNOWN</span>
               </div>
             </div>
           </div>
@@ -405,7 +419,7 @@
                   <span class="circuit-role">Systems Inspector & Patcher</span>
                 </div>
               </div>
-              <span class="circuit-badge badge-closed" id="badge-circuit-openrouter">HEALTHY</span>
+              <span class="circuit-badge badge-unknown" id="badge-circuit-openrouter">UNKNOWN</span>
             </div>
             <div class="circuit-stats-row">
               <div class="stat-box">
@@ -418,7 +432,7 @@
               </div>
               <div class="stat-box">
                 <span class="stat-lbl">CIRCUIT</span>
-                <span class="stat-val text-green" id="stat-state-openrouter">CLOSED</span>
+                <span class="stat-val" id="stat-state-openrouter">UNKNOWN</span>
               </div>
             </div>
           </div>
@@ -432,7 +446,7 @@
                   <span class="circuit-role">Supervisor & Task Ledger Guardian</span>
                 </div>
               </div>
-              <span class="circuit-badge badge-director" id="badge-circuit-hermes">ACTIVE 24/7</span>
+              <span class="circuit-badge badge-unknown" id="badge-circuit-hermes">UNKNOWN</span>
             </div>
             <div class="circuit-stats-row">
               <div class="stat-box">
@@ -445,7 +459,7 @@
               </div>
               <div class="stat-box">
                 <span class="stat-lbl">RECONCILER</span>
-                <span class="stat-val text-yellow">AUTO-SWEEP</span>
+                <span class="stat-val text-yellow" id="stat-reconciler">UNKNOWN</span>
               </div>
             </div>
           </div>
@@ -457,8 +471,8 @@
           <div class="warroom-col-sessions">
             <div class="panel-section-header">
               <div>
-                <h3 class="panel-title">🚨 SESI DEWAN PERANG DARURAT (WAR ROOM LOGS)</h3>
-                <span class="panel-subtitle">Transkrip dialog 4 AI terstruktur tanpa amnesia</span>
+                <h3 class="panel-title">CASE BUS / PROVIDER PROOF</h3>
+                <span class="panel-subtitle">Vote, HTTP outbound, model aktual, token, biaya, dan quorum.</span>
               </div>
               <span class="badge-count" id="warroom-session-count">0 Sesi</span>
             </div>
@@ -472,15 +486,15 @@
           <div class="warroom-col-ledger">
             <div class="panel-section-header">
               <div>
-                <h3 class="panel-title">📋 TASK LEDGER (SINGLE SOURCE OF TRUTH)</h3>
-                <span class="panel-subtitle">Daftar tugas dengan jaminan Idempotency & State Machine</span>
+                <h3 class="panel-title">TASK LEDGER / STATE MACHINE</h3>
+                <span class="panel-subtitle">State persisten, owner, fencing, dan tautan evidence.</span>
               </div>
               <div class="ledger-filters">
                 <button class="filter-chip active" onclick="filterLedgerState('ALL')">SEMUA</button>
                 <button class="filter-chip" onclick="filterLedgerState('RUNNING')">RUNNING</button>
+                <button class="filter-chip" onclick="filterLedgerState('AWAITING_REVIEW')">REVIEW</button>
                 <button class="filter-chip" onclick="filterLedgerState('DONE')">DONE</button>
-                <button class="filter-chip" onclick="filterLedgerState('HANDOFF')">HANDOFF</button>
-                <button class="filter-chip" onclick="filterLedgerState('ESCALATED')">ESCALATED</button>
+                <button class="filter-chip" onclick="filterLedgerState('BLOCKED')">BLOCKED</button>
               </div>
             </div>
 
@@ -492,7 +506,7 @@
                     <th>TASK & TARGET</th>
                     <th>ROLE / OWNER</th>
                     <th>PROVIDER</th>
-                    <th>IDEMPOTENCY</th>
+                    <th>EVIDENCE</th>
                     <th>UPDATED</th>
                   </tr>
                 </thead>

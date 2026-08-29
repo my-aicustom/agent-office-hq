@@ -207,36 +207,10 @@ function renderRoster() {
 }
 
 function initEventLogs() {
-  const initialEvents = [
-    { time: '09:20:00', text: '💬 Interrogation Console armed: 1-on-1 employee debate ready.', type: 'success' },
-    { time: '09:05:00', text: '🛡️ Security Gate: Level-4 clearance protocol activated.', type: 'info' },
-    { time: '08:24:00', text: '🔎 Nadia evidence engine ready. Source status is loaded from the backend after authentication.', type: 'info' },
-    { time: '06:30:28', text: '📊 Executive KPI Monitor calibrated across 3 domains (Tri-Force).', type: 'success' },
-    { time: '00:00:00', text: '🚀 GitHub Actions Cloud Cron (daily-publish.yml) verified online.', type: 'info' }
-  ];
-
-  initialEvents.forEach(evt => addEventLog(evt.time, evt.text, evt.type));
-
-  // Periodic simulated live pulse
-  setInterval(() => {
-    const mayaSprite = officeEngine ? officeEngine.agents.find(a => a.id === 'aero-writer') : null;
-    const mayaPulseText = mayaSprite && mayaSprite.lastLog
-      ? `📡 Maya: ${mayaSprite.lastLog}`
-      : '📡 Maya: belum ada aktivitas publish tersinkron.';
-    const pulses = [
-      { text: mayaPulseText, type: 'info', agent: 'aero-writer' },
-      { text: '📱 Hermes Sentry: WhatsApp beacon listener checked (0 error, DB intact)', type: 'info', agent: 'hermes-sentry' },
-      { text: '🛡️ Iron-Shield: Verified 102 organic keywords blocked from ad cannibalization.', type: 'warning', agent: 'iron-shield' },
-      { text: '⚡ GitHub Actions: Next cloud publish cycle armed for tomorrow 07:00 WIB.', type: 'info', agent: 'cloud-forge' }
-    ];
-    const p = pulses[Math.floor(Math.random() * pulses.length)];
-    const timeStr = new Date().toLocaleTimeString('id-ID');
-    addEventLog(timeStr, p.text, p.type);
-    
-    if (officeEngine && p.agent) {
-      officeEngine.showSpeech(p.agent, '⚡ ' + p.text.split(':')[0]);
-    }
-  }, 14000);
+  const container = document.getElementById('eventLog');
+  if (!container) return;
+  container.innerHTML = '';
+  addEventLog('--:--:--', 'Menunggu authenticated ledger evidence. Tidak ada pulse simulasi.', 'info');
 }
 
 function addEventLog(time, text, type = 'info') {
@@ -711,46 +685,150 @@ async function executeModalAgentAction() {
 let warRoomSessionsData = [];
 let taskLedgerData = [];
 let currentLedgerFilter = 'ALL';
+let controlRoomSnapshot = null;
+let controlRoomRefreshTimer = null;
+
+function formatOpsDate(value) {
+  if (!value) return 'NO EVIDENCE';
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString('id-ID') : 'INVALID TIMESTAMP';
+}
+
+function formatDuration(seconds) {
+  const total = Number(seconds || 0);
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${days}d ${hours}h ${minutes}m`;
+}
+
+function renderControlRoomOverview(snapshot) {
+  if (!snapshot) return;
+  const modeEl = document.getElementById('ops-system-mode');
+  if (modeEl) {
+    modeEl.textContent = snapshot.mode;
+    modeEl.className = `ops-mode mode-${String(snapshot.mode || 'unknown').toLowerCase()}`;
+  }
+  setText('ops-generated-at', formatOpsDate(snapshot.generatedAt));
+  setText('ops-runtime-status', `${snapshot.runtime.status} / ${String(snapshot.runtime.commitSha || 'unknown').slice(0, 7)}`);
+  setText('ops-runtime-detail', `Uptime ${formatDuration(snapshot.runtime.uptimeSeconds)} // GSC ${snapshot.runtime.dataSources?.gsc ? 'CONFIGURED' : 'UNAVAILABLE'}`);
+  setText('header-vps-status', `VPS: ${snapshot.runtime.status}`);
+  setText('header-source-status', `GSC: ${snapshot.runtime.dataSources?.gsc ? 'CONFIGURED' : 'UNAVAILABLE'}`);
+
+  const scheduler = snapshot.scheduler || {};
+  const schedulerStatus = scheduler.running ? 'WORKING' : scheduler.lastRun?.status || (scheduler.enabled ? 'WAITING' : 'DISABLED');
+  setText('ops-scheduler-status', schedulerStatus);
+  setText('ops-scheduler-detail', scheduler.lastRun
+    ? `Last ${formatOpsDate(scheduler.lastRun.finishedAt)} // next ~${formatOpsDate(scheduler.estimatedNextRunAt)}`
+    : 'Belum ada scheduler run evidence.');
+
+  const pipeline = snapshot.pipeline || {};
+  setText('ops-pipeline-status', `${pipeline.executing || 0} ACTIVE`);
+  setText('ops-pipeline-detail', `${pipeline.awaitingReview || 0} human gate // ${pipeline.blocked || 0} blocked // ${pipeline.done || 0} done`);
+  setText('ops-proof-status', `${Number(snapshot.proof?.totalTokens || 0).toLocaleString('id-ID')} TOKENS`);
+  setText('ops-proof-detail', `Rp${Number(snapshot.proof?.totalCostIdr || 0).toLocaleString('id-ID')} // ${snapshot.proof?.verifiedProviderCount || 0} outbound-verified`);
+
+  setText('ops-stage-queued', pipeline.queued || 0);
+  setText('ops-stage-executing', pipeline.executing || 0);
+  setText('ops-stage-review', pipeline.awaitingReview || 0);
+  setText('ops-stage-deployed', pipeline.deployed || 0);
+  setText('ops-stage-done', pipeline.done || 0);
+
+  const errorsEl = document.getElementById('ops-dependency-errors');
+  if (errorsEl) {
+    const errors = snapshot.dependencyErrors || [];
+    errorsEl.textContent = errors.length ? `FAIL-CLOSED: ${errors.join(' // ')}` : '';
+    errorsEl.classList.toggle('hidden', errors.length === 0);
+  }
+
+  const agentGrid = document.getElementById('ops-agent-grid');
+  if (agentGrid) {
+    agentGrid.innerHTML = (snapshot.agents || []).map(agent => `
+      <article class="ops-agent-card status-${String(agent.status).toLowerCase()}">
+        <div class="ops-agent-top"><span>${escapeHtml(agent.name)}</span><strong>${escapeHtml(agent.status)}</strong></div>
+        <h4>${escapeHtml(agent.role)}</h4>
+        <p>${escapeHtml(agent.detail)}</p>
+        <time>${formatOpsDate(agent.evidenceAt)}</time>
+      </article>
+    `).join('') || '<div class="empty-state">Tidak ada agent evidence.</div>';
+  }
+
+  const hermesBadge = document.getElementById('badge-circuit-hermes');
+  if (hermesBadge) {
+    hermesBadge.textContent = snapshot.mode;
+    hermesBadge.className = `circuit-badge badge-${snapshot.mode === 'BLOCKED' ? 'open' : 'director'}`;
+  }
+  setText('stat-reconciler', snapshot.lifecycle?.running ? 'RUNNING' : snapshot.lifecycle?.lastSweep?.status || 'NO EVIDENCE');
+}
+
+function renderEvidenceEventLog(snapshot) {
+  const container = document.getElementById('eventLog');
+  if (!container) return;
+  container.innerHTML = '';
+  const events = [];
+  for (const task of (snapshot.recentTasks || []).slice(0, 8)) {
+    events.push({
+      at: task.updatedAt,
+      type: ['BLOCKED', 'ESCALATED', 'FAILED'].includes(task.state) ? 'danger' : task.state === 'DONE' ? 'success' : 'info',
+      text: `TASK ${task.id} // ${task.state} // ${task.title || 'untitled'}`
+    });
+  }
+  for (const caseItem of (snapshot.recentCases || []).slice(0, 6)) {
+    events.push({
+      at: caseItem.updatedAt || caseItem.createdAt,
+      type: caseItem.quorum?.status === 'QUORUM_MET' ? 'success' : 'warning',
+      text: `CASE ${caseItem.caseId || caseItem.id} // ${caseItem.quorum?.status || caseItem.status || 'UNKNOWN'} // ${caseItem.title || 'untitled'}`
+    });
+  }
+  events.sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+  if (events.length === 0) addEventLog('--:--:--', 'Ledger belum memiliki aktivitas persisten.', 'info');
+  for (const event of events.slice(0, 12).reverse()) {
+    addEventLog(event.at ? new Date(event.at).toLocaleTimeString('id-ID') : '--:--:--', event.text, event.type);
+  }
+}
 
 async function refreshWarRoomData() {
-  const token = localStorage.getItem('hq_auth_token');
-  const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-
+  const button = document.getElementById('ops-refresh-button');
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'LOADING...';
+  }
   try {
-    // 1. Fetch Director Telemetry
-    const telemRes = await fetch('/api/director/telemetry', { headers });
-    if (telemRes.ok) {
-      const telemData = await telemRes.json();
-      if (telemData.director) {
-        renderWarRoomRadar(telemData.director);
-      }
+    const response = await fetch('/api/director/control-room', { headers: getAuthenticatedHeaders() });
+    if (response.status === 401) {
+      showAuthOverlay();
+      throw new Error('AUTHENTICATION REQUIRED');
     }
-
-    // 2. Fetch Durable Cases & War Room Sessions
-    const casesRes = await fetch('/api/cases?limit=20', { headers });
-    if (casesRes.ok) {
-      const casesData = await casesRes.json();
-      if (casesData.cases && casesData.cases.length > 0) {
-        warRoomSessionsData = casesData.cases;
-      } else {
-        const sessRes = await fetch('/api/war-room/sessions?limit=20', { headers });
-        if (sessRes.ok) {
-          const sessData = await sessRes.json();
-          warRoomSessionsData = sessData.sessions || [];
-        }
-      }
-      renderWarRoomSessions(warRoomSessionsData);
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success' || !payload.controlRoom) {
+      throw new Error(payload.message || `HTTP ${response.status}`);
     }
-
-    // 3. Fetch Task Ledger
-    const taskRes = await fetch('/api/director/tasks?limit=50', { headers });
-    if (taskRes.ok) {
-      const taskData = await taskRes.json();
-      taskLedgerData = taskData.tasks || [];
-      renderTaskLedgerTable(taskLedgerData);
+    controlRoomSnapshot = payload.controlRoom;
+    taskLedgerData = controlRoomSnapshot.recentTasks || [];
+    warRoomSessionsData = controlRoomSnapshot.recentCases || [];
+    renderControlRoomOverview(controlRoomSnapshot);
+    renderWarRoomRadar(controlRoomSnapshot.director);
+    renderWarRoomSessions(warRoomSessionsData);
+    renderTaskLedgerTable(taskLedgerData);
+    renderEvidenceEventLog(controlRoomSnapshot);
+  } catch (error) {
+    const modeEl = document.getElementById('ops-system-mode');
+    if (modeEl) {
+      modeEl.textContent = 'OFFLINE';
+      modeEl.className = 'ops-mode mode-blocked';
     }
-  } catch (err) {
-    console.warn('[WarRoom] Error refreshing data:', err.message);
+    setText('ops-generated-at', `ERROR: ${error.message}`);
+    console.warn('[ControlRoom] Evidence refresh failed:', error.message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'REFRESH EVIDENCE';
+    }
+    if (!controlRoomRefreshTimer) {
+      controlRoomRefreshTimer = setInterval(() => {
+        if (currentActiveView === 'warroom' && !document.hidden) refreshWarRoomData();
+      }, 30_000);
+    }
   }
 }
 
@@ -766,6 +844,7 @@ function renderWarRoomRadar(director) {
 
   // Provider Telemetry
   const providers = director.providers?.providers || [];
+  const circuits = director.providers?.circuits || {};
   for (const p of providers) {
     const name = p.name?.toLowerCase();
     const callsEl = document.getElementById(`stat-calls-${name}`);
@@ -775,17 +854,30 @@ function renderWarRoomRadar(director) {
 
     const totalCalls = p.totalCalls ?? p.metrics?.totalCalls ?? 0;
     const avgLat = p.avgLatencyMs ?? p.metrics?.avgLatencyMs ?? null;
-    const circuitState = p.circuitState || p.circuit?.state || 'CLOSED';
+    const circuitState = p.available ? (circuits[name]?.state || 'CLOSED') : 'UNAVAILABLE';
+    const successfulCalls = p.metrics?.successfulCalls ?? 0;
+    let badgeText = 'UNCONFIGURED';
+    let badgeClass = 'badge-unknown';
+    if (p.available && circuitState === 'OPEN') {
+      badgeText = 'CIRCUIT OPEN';
+      badgeClass = 'badge-open';
+    } else if (p.available && successfulCalls > 0) {
+      badgeText = 'VERIFIED';
+      badgeClass = 'badge-closed';
+    } else if (p.available) {
+      badgeText = 'READY / UNPROVEN';
+      badgeClass = 'badge-ready';
+    }
 
     if (callsEl) callsEl.innerText = totalCalls;
     if (latEl) latEl.innerText = avgLat ? `${avgLat}ms` : '--';
     if (stateEl) {
       stateEl.innerText = circuitState;
-      stateEl.className = circuitState === 'OPEN' ? 'stat-val text-red' : 'stat-val text-green';
+      stateEl.className = ['OPEN', 'UNAVAILABLE'].includes(circuitState) ? 'stat-val text-red' : 'stat-val text-green';
     }
     if (badgeEl) {
-      badgeEl.innerText = circuitState === 'OPEN' ? 'TRIPPED (OPEN)' : 'HEALTHY';
-      badgeEl.className = circuitState === 'OPEN' ? 'circuit-badge badge-open' : 'circuit-badge badge-closed';
+      badgeEl.innerText = badgeText;
+      badgeEl.className = `circuit-badge ${badgeClass}`;
     }
   }
 }
@@ -800,22 +892,24 @@ function renderWarRoomSessions(sessions) {
   if (!sessions || sessions.length === 0) {
     container.innerHTML = `
       <div class="empty-state" style="padding: 30px; text-align: center; color: #718096; font-size: 15px;">
-        🛡️ Belum ada insiden kritis. Sentry 24/7 sedang berpatroli aktif di latar belakang.
+        Belum ada Case Packet persisten. Sistem IDLE sampai ada evidence baru.
       </div>
     `;
     return;
   }
 
   container.innerHTML = sessions.map(s => {
-    const isResolved = s.status === 'RESOLVED' || s.state === 'RESOLVED';
-    const isNoQuorum = s.status === 'ESCALATED_NO_QUORUM';
+    const quorumStatus = s.quorum?.status || s.status || s.state || 'UNKNOWN';
+    const isResolved = quorumStatus === 'QUORUM_MET' || s.status === 'RESOLVED' || s.state === 'RESOLVED';
+    const isNoQuorum = quorumStatus === 'NO_QUORUM' || s.status === 'ESCALATED_NO_QUORUM';
     const isDegraded = s.status === 'RESOLVED_DEGRADED';
     const totalCost = s.budget?.totalCostIdr ? `Rp ${s.budget.totalCostIdr.toLocaleString('id-ID')}` : null;
     const totalTokens = s.budget?.totalTokensUsed ? `${s.budget.totalTokensUsed} tokens` : null;
 
     const turnsList = s.turns || s.transcript || [];
     const dialogHtml = turnsList.map(t => {
-      const spkClass = (t.speaker || '').toLowerCase();
+      const providerName = t.providerKey || t.speaker || 'deterministic';
+      const spkClass = providerName.toLowerCase();
       const actualModel = t.actualModel ? `<span class="badge-status-pill" style="font-size:10px; margin-left:6px; color:#a0aec0;">${escapeHtml(t.actualModel)}</span>` : '';
       const usageInfo = t.usage?.costIdr !== undefined
         ? `<span class="font-mono" style="font-size:10px; color:#718096; margin-left:auto;">${t.usage.totalTokens} tkn (~${Math.round(t.usage.costIdr * 100) / 100} IDR)</span>`
@@ -823,17 +917,21 @@ function renderWarRoomSessions(sessions) {
       const errorMsg = t.status === 'FAILED' && t.error
         ? `<div class="text-red font-mono" style="font-size:12px; margin-top:4px;">❌ Error: ${escapeHtml(t.error)}</div>`
         : '';
+      const outboundInfo = t.outboundEvidence?.verified
+        ? `<div class="turn-proof verified">OUTBOUND VERIFIED // HTTP ${t.outboundEvidence.httpStatus || '--'} // ${escapeHtml(t.vote?.decision || 'NO VOTE')} // ${Number(t.usage?.totalTokens || 0).toLocaleString('id-ID')} TOKENS</div>`
+        : `<div class="turn-proof unverified">NO OUTBOUND EVIDENCE // ${escapeHtml(t.status || 'UNKNOWN')}</div>`;
 
       return `
         <div class="speech-bubble ${spkClass}">
           <span class="bubble-avatar">${t.avatar || '🤖'}</span>
           <div class="bubble-content">
             <div class="bubble-header">
-              <span class="bubble-speaker ${spkClass}">[${t.speaker}] ${t.role || ''} ${actualModel}</span>
+              <span class="bubble-speaker ${spkClass}">[${escapeHtml(providerName)}] ${escapeHtml(t.role || '')} ${actualModel}</span>
               ${usageInfo}
               <span class="bubble-time font-mono" style="margin-left:8px;">${new Date(t.timestamp).toLocaleTimeString('id-ID')}</span>
             </div>
             <div class="bubble-text">${formatMarkdownToHtml(t.message || '')}</div>
+            ${outboundInfo}
             ${errorMsg}
           </div>
         </div>
@@ -843,7 +941,7 @@ function renderWarRoomSessions(sessions) {
     let statusBadge = '<span class="session-status-tag success">✅ VERIFIED DECISION</span>';
     if (isNoQuorum) statusBadge = '<span class="session-status-tag" style="background:rgba(255,0,85,0.2); color:#ff0055; border:1px solid #ff0055;">🚨 NO QUORUM (REJECTED)</span>';
     else if (isDegraded) statusBadge = '<span class="session-status-tag" style="background:rgba(255,200,0,0.2); color:#ffcc00; border:1px solid #ffcc00;">⚠️ DEGRADED (1 MODEL)</span>';
-    else if (!isResolved) statusBadge = `<span class="session-status-tag warning">⏳ ${s.status || s.state}</span>`;
+    else if (!isResolved) statusBadge = `<span class="session-status-tag warning">${escapeHtml(quorumStatus)}</span>`;
 
     const costBadge = totalCost
       ? `<span class="font-mono" style="font-size:12px; color:#00ff66; background:#0d1810; padding:2px 8px; border-radius:4px; border:1px solid #00ff66;">💰 Estimasi: ${totalCost} (${totalTokens})</span>`
@@ -904,7 +1002,10 @@ function renderTaskLedgerTable(tasks) {
     const shortId = t.id ? t.id.replace('task-', '') : '--';
     const stateClass = `state-${t.state || 'QUEUED'}`;
     const dateStr = t.updatedAt ? new Date(t.updatedAt).toLocaleTimeString('id-ID') : '--';
-    const idemShort = t.idempotencyKey ? (t.idempotencyKey.length > 22 ? t.idempotencyKey.slice(0, 20) + '...' : t.idempotencyKey) : 'auto-sha256';
+    const links = Array.isArray(t.evidenceLinks) ? t.evidenceLinks : [];
+    const evidenceHtml = links.length
+      ? links.slice(-2).map(link => `<a class="ledger-evidence-link" href="${escapeHtml(link.url)}" target="_blank" rel="noopener">${escapeHtml(link.label)}</a>`).join('')
+      : '<span class="ledger-no-evidence">NO EXTERNAL PROOF</span>';
 
     return `
       <tr>
@@ -923,7 +1024,7 @@ function renderTaskLedgerTable(tasks) {
           <span class="font-mono" style="color:#ffaa00;">${t.activeProvider || t.preferredProvider || 'CASCADE'}</span>
         </td>
         <td>
-          <code class="font-mono" style="font-size:11px; color:#a0aec0;">${escapeHtml(idemShort)}</code>
+          <div class="ledger-evidence-stack">${evidenceHtml}</div>
         </td>
         <td class="font-mono" style="font-size:12px; color:#94a3b8;">
           ${dateStr}
@@ -931,44 +1032,5 @@ function renderTaskLedgerTable(tasks) {
       </tr>
     `;
   }).join('');
-}
-
-async function triggerWarRoomDrill(type, title, error) {
-  const token = localStorage.getItem('hq_auth_token');
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-  };
-
-  if (window.audioFX && window.audioFX.playBlip) {
-    window.audioFX.playBlip(880, 'sawtooth', 0.25);
-  }
-
-  addEventLog(new Date().toLocaleTimeString('id-ID'), `🚨 OPERATOR DRILL TRIGGERED: ${title}`, 'warning');
-
-  try {
-    const res = await fetch('/api/war-room/trigger', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        type,
-        title,
-        severity: 'CRITICAL',
-        source: 'operator_drill',
-        error
-      })
-    });
-
-    const data = await res.json();
-    if (res.ok && data.status === 'success') {
-      if (window.audioFX && window.audioFX.playSuccess) window.audioFX.playSuccess();
-      addEventLog(new Date().toLocaleTimeString('id-ID'), `✅ War Room Council berhasil menyegel konsensus untuk sesi '${data.session?.id}'.`, 'success');
-      await refreshWarRoomData();
-    } else {
-      addEventLog(new Date().toLocaleTimeString('id-ID'), `❌ Gagal memicu War Room: ${data.message}`, 'danger');
-    }
-  } catch (err) {
-    addEventLog(new Date().toLocaleTimeString('id-ID'), `❌ Connection error: ${err.message}`, 'danger');
-  }
 }
 

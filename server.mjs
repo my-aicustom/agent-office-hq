@@ -11,6 +11,7 @@ import { mayaAgent } from './agents/maya/agent.mjs';
 import { budiAgent } from './agents/budi/agent.mjs';
 import { rianAgent } from './agents/rian/agent.mjs';
 import { gilangAgent } from './agents/gilang/agent.mjs';
+import { buildControlRoomSnapshot } from './director/control_room_snapshot.mjs';
 import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
 import { IronDirector } from './director/iron_director.mjs';
 
@@ -823,6 +824,23 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
       }
+      return;
+    }
+
+    if (reqPath === '/api/director/control-room' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const director = ironDirector.getTelemetry();
+      const tasks = ironDirector.ledger.listTasks({ limit: 100 });
+      const cases = ironDirector.caseBus.listCases({ limit: 50 });
+      const controlRoom = buildControlRoomSnapshot({
+        director,
+        tasks,
+        cases,
+        commitSha: process.env.APP_COMMIT_SHA || 'unknown',
+        dataSources: { gsc: isGscConfigured() }
+      });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', controlRoom }, null, 2));
       return;
     }
 
