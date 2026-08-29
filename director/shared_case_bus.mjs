@@ -19,6 +19,19 @@ const EXECUTABLE_ACTIONS = new Set([
   'HTTP_HEALTH_CHECK'
 ]);
 
+const VOTE_RESPONSE_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    decision: { type: 'string', enum: ['APPROVE', 'REJECT', 'ESCALATE'] },
+    actionType: { type: 'string' },
+    rationale: { type: 'string' },
+    risks: { type: 'array', items: { type: 'string' }, maxItems: 10 },
+    acceptanceCriteria: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10 }
+  },
+  required: ['decision', 'actionType', 'rationale', 'risks', 'acceptanceCriteria']
+});
+
 function proposedActionFor(event = {}) {
   const requested = String(event.metadata?.requestedActionType || '').toUpperCase();
   return EXECUTABLE_ACTIONS.has(requested) ? requested : 'MANUAL_REVIEW';
@@ -28,7 +41,7 @@ function parseStructuredVote(text, requiredActionType) {
   const raw = String(text || '').trim();
   const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   const vote = JSON.parse(fenced ? fenced[1] : raw);
-  return {
+  const normalized = {
     decision: String(vote.decision || '').toUpperCase(),
     actionType: String(vote.actionType || '').toUpperCase(),
     rationale: String(vote.rationale || '').trim(),
@@ -37,6 +50,15 @@ function parseStructuredVote(text, requiredActionType) {
       ? vote.acceptanceCriteria.map(String).filter(Boolean)
       : []
   };
+  if (!['APPROVE', 'REJECT', 'ESCALATE'].includes(normalized.decision)) {
+    throw new Error(`Structured vote has invalid decision '${normalized.decision || 'EMPTY'}'.`);
+  }
+  if (normalized.actionType !== requiredActionType) {
+    throw new Error(`Structured vote action '${normalized.actionType || 'EMPTY'}' does not match '${requiredActionType}'.`);
+  }
+  if (!normalized.rationale) throw new Error('Structured vote rationale is empty.');
+  if (normalized.acceptanceCriteria.length === 0) throw new Error('Structured vote acceptance criteria are empty.');
+  return normalized;
 }
 
 function votePrompt(event, proposedActionType) {
@@ -156,6 +178,7 @@ export class SharedCaseBus {
           system: 'Kamu adalah Gemini, Telemetry Specialist di Iron Swarm.',
           user: prompt,
           jsonMode: true,
+          jsonSchema: VOTE_RESPONSE_SCHEMA,
           maxOutputTokens: 1000
         });
 
@@ -185,7 +208,10 @@ export class SharedCaseBus {
           actualModel: 'gemini-3.6-flash',
           error: err.message || String(err),
           message: `[ERROR] Gemini call failed: ${err.message}`,
-          latencyMs: Date.now() - startTime
+          latencyMs: Date.now() - startTime,
+          promptTokens: err.usage?.promptTokens ?? 0,
+          completionTokens: err.usage?.completionTokens ?? 0,
+          outboundEvidence: err.outboundEvidence || null
         });
       }
     } else {
