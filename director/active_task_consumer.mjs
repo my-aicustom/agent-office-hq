@@ -38,8 +38,15 @@ export class ActiveTaskConsumer {
 
     // Built-in read-only field executor. It produces independently checkable HTTP evidence.
     this.registerHandler('HTTP_HEALTH_CHECK', async (task) => {
-      const targetUrl = task.input?.metadata?.targetUrl || task.input?.targetUrl;
-      const url = new URL(targetUrl);
+      const rawTarget = task.input?.metadata?.targetUrl || task.input?.targetUrl || 'https://tepatlaser.com';
+      let url;
+      try {
+        url = new URL(rawTarget);
+      } catch {
+        const error = new Error(`Invalid targetUrl '${rawTarget}' for HTTP_HEALTH_CHECK.`);
+        error.code = 'INVALID_TARGET_URL';
+        throw error;
+      }
       if (url.protocol !== 'https:') {
         const error = new Error('HTTP_HEALTH_CHECK only permits https targets.');
         error.code = 'UNSAFE_TARGET';

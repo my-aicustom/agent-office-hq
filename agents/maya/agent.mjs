@@ -74,7 +74,7 @@ class MayaAgent {
         agentAvatar: MAYA_IDENTITY.avatar,
         agentColor: MAYA_IDENTITY.color,
         timestamp,
-        reply: 'ANTHROPIC_API_KEY belum di-set di server ini, Bos — saya belum bisa mikir. ' + this.buildGroundingContext(status)
+        reply: 'LLM API Key (ANTHROPIC_API_KEY / OPENROUTER_API_KEY / GEMINI_API_KEY) belum di-set di server ini, Bos — saya belum bisa mikir. ' + this.buildGroundingContext(status)
       };
     }
 

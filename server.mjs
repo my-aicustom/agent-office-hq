@@ -334,7 +334,7 @@ const server = http.createServer(async (req, res) => {
       providers: {
         gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY),
         openrouter: Boolean(process.env.OPENROUTER_API_KEY),
-        claude: Boolean(process.env.ANTHROPIC_API_KEY)
+        claude: Boolean(process.env.ANTHROPIC_API_KEY || process.env.OPENROUTER_API_KEY)
       },
       dataSources: {
         gsc: isGscConfigured()

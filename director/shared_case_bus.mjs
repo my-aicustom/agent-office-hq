@@ -1,4 +1,4 @@
-﻿// Iron Director — Shared Case Bus & Quorum Supervisor
+// Iron Director — Shared Case Bus & Quorum Supervisor
 // Replaces fragile group chats with a single-pass, identity-pinned, durable case bus.
 
 import fs from 'fs';
@@ -39,8 +39,17 @@ function proposedActionFor(event = {}) {
 
 function parseStructuredVote(text, requiredActionType) {
   const raw = String(text || '').trim();
-  const fenced = raw.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  const vote = JSON.parse(fenced ? fenced[1] : raw);
+  let jsonStr = raw;
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) {
+    jsonStr = fenced[1].trim();
+  } else {
+    const jsonMatch = raw.match(/(\{[\s\S]*\})/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1].trim();
+    }
+  }
+  const vote = JSON.parse(jsonStr);
   const normalized = {
     decision: String(vote.decision || '').toUpperCase(),
     actionType: String(vote.actionType || '').toUpperCase(),
@@ -239,6 +248,7 @@ export class SharedCaseBus {
         const res = await this.claudeProvider.execute({
           system: 'Kamu adalah Claude, Chief Architect di Iron Swarm.',
           user: prompt,
+          jsonMode: true,
           maxOutputTokens: 400
         });
 

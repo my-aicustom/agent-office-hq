@@ -1,12 +1,13 @@
-// Pulls Maya's real activity log from the tepatlaser repo (public, so a
-// plain unauthenticated fetch of the raw file is enough — no cross-service
-// auth needed). This is the bridge between the agentic publisher that
-// actually runs in heriscaleup/tepatlaser and this dashboard's visualization.
+import fs from 'fs';
+import path from 'path';
 
 const STATUS_URL = process.env.MAYA_STATUS_URL
   || 'https://raw.githubusercontent.com/heriscaleup/tepatlaser/main/data/maya-status.json';
 const RANKINGS_URL = process.env.MAYA_RANKINGS_URL
   || 'https://raw.githubusercontent.com/heriscaleup/tepatlaser/main/data/rankings/history.json';
+
+const LOCAL_STATUS_PATH = path.resolve('D:/code/tepatlaser/data/maya-status.json');
+const LOCAL_RANKINGS_PATH = path.resolve('D:/code/tepatlaser/data/rankings/history.json');
 
 async function fetchJson(url) {
   const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
@@ -28,18 +29,42 @@ export async function fetchMayaSource() {
   let status = null;
   let rankings = null;
 
-  try {
-    const result = await fetchJson(STATUS_URL);
-    status = result.notFound ? { schemaVersion: 1, updatedAt: null, runs: [] } : result.data;
-  } catch (error) {
-    errors.push(`maya-status.json: ${error.message}`);
+  // 1. Try local repository first if available
+  if (fs.existsSync(LOCAL_STATUS_PATH)) {
+    try {
+      const raw = fs.readFileSync(LOCAL_STATUS_PATH, 'utf8');
+      status = JSON.parse(raw);
+    } catch (e) {
+      errors.push(`local maya-status.json: ${e.message}`);
+    }
   }
 
-  try {
-    const result = await fetchJson(RANKINGS_URL);
-    rankings = result.notFound ? { schemaVersion: 1, snapshots: [] } : result.data;
-  } catch (error) {
-    errors.push(`rankings/history.json: ${error.message}`);
+  if (fs.existsSync(LOCAL_RANKINGS_PATH)) {
+    try {
+      const raw = fs.readFileSync(LOCAL_RANKINGS_PATH, 'utf8');
+      rankings = JSON.parse(raw);
+    } catch (e) {
+      errors.push(`local rankings/history.json: ${e.message}`);
+    }
+  }
+
+  // 2. Fallback to remote if not found locally
+  if (!status) {
+    try {
+      const result = await fetchJson(STATUS_URL);
+      status = result.notFound ? { schemaVersion: 1, updatedAt: null, runs: [] } : result.data;
+    } catch (error) {
+      errors.push(`maya-status.json: ${error.message}`);
+    }
+  }
+
+  if (!rankings) {
+    try {
+      const result = await fetchJson(RANKINGS_URL);
+      rankings = result.notFound ? { schemaVersion: 1, snapshots: [] } : result.data;
+    } catch (error) {
+      errors.push(`rankings/history.json: ${error.message}`);
+    }
   }
 
   return { status, rankings, syncedAt, errors };
