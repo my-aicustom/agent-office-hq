@@ -151,10 +151,16 @@ function getClientIp(req) {
   const realIp = parseIpHeader(req.headers['x-real-ip']);
   if (realIp) return realIp;
 
+  // Exactly one trusted proxy hop (Traefik) sits in front of this app, and it
+  // appends the connecting peer's address to any existing X-Forwarded-For
+  // header rather than replacing it — so the trustworthy value is the LAST
+  // entry. Reading the first entry instead lets any client spoof its own
+  // logged IP (and dodge IP-based login rate limiting) via a fake header.
   const forwardedFor = req.headers['x-forwarded-for'];
   if (typeof forwardedFor === 'string') {
-    const firstForwardedIp = parseIpHeader(forwardedFor.split(',')[0]);
-    if (firstForwardedIp) return firstForwardedIp;
+    const segments = forwardedFor.split(',');
+    const lastForwardedIp = parseIpHeader(segments[segments.length - 1]);
+    if (lastForwardedIp) return lastForwardedIp;
   }
 
   return socketIp;

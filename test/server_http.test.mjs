@@ -12,6 +12,7 @@ process.env.PORT = '0'; // dynamic port
 process.env.HQ_PASSWORD = 'test-master-password-super-secure';
 process.env.HQ_AUTH_SECRET = 'test-auth-secret-32-chars-long!!';
 process.env.HQ_SESSION_TTL_HOURS = '24';
+process.env.TRUST_PROXY = 'true';
 
 const { server, generateToken, verifyToken, securityStore, ironDirector } = await import('../server.mjs');
 
@@ -102,6 +103,19 @@ test('2. Auth Login: rejects invalid passcode, records failure and audit log', a
 
   const logs = securityStore.getAuditLogs({ limit: 5, action: 'AUTH_LOGIN' });
   assert.ok(logs.some(l => l.status === 'FAILED'));
+});
+
+test('2b. Client IP: trusts only the last X-Forwarded-For hop, not a client-spoofable earlier one', async () => {
+  const res = await makeRequest('/api/auth/login', {
+    method: 'POST',
+    headers: { 'X-Forwarded-For': '198.51.100.66, 203.0.113.77' },
+    body: { password: 'wrong-password', username: 'spoof-test' }
+  });
+
+  assert.equal(res.statusCode, 401);
+
+  const logs = securityStore.getAuditLogs({ limit: 1, action: 'AUTH_LOGIN' });
+  assert.equal(logs[0].ip, '203.0.113.77', 'must trust the last (proxy-appended) hop, not the client-suppliable first one');
 });
 
 test('3. Rate Limiting: 5 failed attempts lock out IP with 429 Too Many Requests', async () => {
