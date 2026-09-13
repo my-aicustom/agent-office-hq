@@ -1148,6 +1148,18 @@ async function runSerpRefresh() {
   }
 }
 
+const MAYA_SYNC_INTERVAL_HOURS = Number(process.env.MAYA_SYNC_INTERVAL_HOURS) || 6;
+
+async function runMayaSync() {
+  try {
+    const { errors } = await mayaAgent.sync();
+    if (errors.length) console.warn(`⚠️ [MAYA] sync completed with warnings: ${errors.join('; ')}`);
+    else console.log(`✅ [MAYA] activity sync done at ${new Date().toISOString()}`);
+  } catch (e) {
+    console.error(`❌ [MAYA] activity sync failed: ${e.message}`);
+  }
+}
+
 if (process.env.NODE_ENV !== 'test') {
   if (isGscConfigured()) {
     runSerpRefresh();
