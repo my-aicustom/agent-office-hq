@@ -34,7 +34,7 @@
           <div id="auth-error-msg" class="auth-error font-mono hidden">❌ ACCESS DENIED: INVALID PASSCODE</div>
         </form>
         <div class="auth-footer-info font-mono">
-          <span>TARGET: VPS 163.61.44.41 // TRAEFIK HTTPS GATEWAY</span>
+          <span>TARGET: SWARM PRODUCTION GATEWAY</span>
         </div>
       </div>
     </div>
@@ -515,6 +515,36 @@
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+
+        <div class="ops-section-heading">
+          <div><span class="ops-eyebrow">SECURITY</span><h3>AUDIT TRAIL</h3></div>
+          <span class="ops-section-note">Login, logout, dan dispatch mutasi tercatat persisten di SQLite server.</span>
+        </div>
+        <div class="warroom-col-ledger">
+          <div class="panel-section-header">
+            <div>
+              <h3 class="panel-title">AUDIT LOGS</h3>
+              <span class="panel-subtitle">Waktu, aktor, IP, aksi, dan status dari security_store.mjs.</span>
+            </div>
+            <button class="filter-chip" onclick="refreshAuditLogs()">REFRESH</button>
+          </div>
+          <div class="ledger-table-wrap">
+            <table class="ledger-table">
+              <thead>
+                <tr>
+                  <th>WAKTU</th>
+                  <th>AKTOR</th>
+                  <th>IP</th>
+                  <th>AKSI</th>
+                  <th>STATUS</th>
+                </tr>
+              </thead>
+              <tbody id="audit-log-tbody">
+                <tr><td colspan="5" class="loading-state">Memuat audit trail...</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
 

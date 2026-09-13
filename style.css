@@ -524,6 +524,11 @@ canvas {
   color: var(--accent-yellow);
 }
 
+.badge-status-pill.error {
+  background: rgba(255, 0, 85, 0.15);
+  color: var(--accent-magenta);
+}
+
 /* Staff Scorecard List */
 .staff-scorecard-list {
   padding: 10px;

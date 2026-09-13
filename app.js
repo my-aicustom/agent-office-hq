@@ -147,13 +147,24 @@ async function handleAuthSubmit(event) {
   }
 }
 
-function lockTerminal() {
+async function lockTerminal() {
+  const token = localStorage.getItem('hq_auth_token');
+  if (token) {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+    } catch (err) {
+      console.warn('[Auth] Logout request failed, clearing local session anyway:', err.message);
+    }
+  }
   localStorage.removeItem('hq_auth_token');
   if (window.audioFX && window.audioFX.playBlip) {
     window.audioFX.playBlip(350, 'sawtooth', 0.15);
   }
   showAuthOverlay();
-  addEventLog(new Date().toLocaleTimeString('id-ID'), '🔒 Security Gate: Terminal locked by operator.', 'warning');
+  addEventLog(new Date().toLocaleTimeString('id-ID'), '🔒 Security Gate: Terminal locked. Session token revoked server-side.', 'warning');
 }
 
 function switchView(viewName) {
@@ -811,6 +822,7 @@ async function refreshWarRoomData() {
     renderWarRoomSessions(warRoomSessionsData);
     renderTaskLedgerTable(taskLedgerData);
     renderEvidenceEventLog(controlRoomSnapshot);
+    refreshAuditLogs();
   } catch (error) {
     const modeEl = document.getElementById('ops-system-mode');
     if (modeEl) {
@@ -830,6 +842,47 @@ async function refreshWarRoomData() {
       }, 30_000);
     }
   }
+}
+
+async function refreshAuditLogs() {
+  const tbody = document.getElementById('audit-log-tbody');
+  try {
+    const response = await fetch('/api/audit-logs?limit=50', { headers: getAuthenticatedHeaders() });
+    if (response.status === 401) {
+      showAuthOverlay();
+      return;
+    }
+    const payload = await response.json();
+    if (!response.ok || payload.status !== 'success') {
+      throw new Error(payload.message || `HTTP ${response.status}`);
+    }
+    renderAuditLogs(payload.logs || []);
+  } catch (error) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="loading-state">ERROR: ${escapeHtml(error.message)}</td></tr>`;
+    console.warn('[AuditLog] Refresh failed:', error.message);
+  }
+}
+
+function renderAuditLogs(logs) {
+  const tbody = document.getElementById('audit-log-tbody');
+  if (!tbody) return;
+  if (!logs.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="loading-state">Belum ada audit log.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = logs.map(log => {
+    const statusClass = log.status === 'SUCCESS' ? 'success' : (['FAILED', 'RATE_LIMITED'].includes(log.status) ? 'error' : 'warning');
+    const time = log.timestamp ? new Date(log.timestamp).toLocaleString('id-ID') : '--';
+    return `
+      <tr>
+        <td class="font-mono">${escapeHtml(time)}</td>
+        <td>${escapeHtml(log.actor || 'unknown')}</td>
+        <td class="font-mono">${escapeHtml(log.ip || '--')}</td>
+        <td>${escapeHtml(log.action || '--')}</td>
+        <td><span class="badge-status-pill ${statusClass}">${escapeHtml(log.status || 'UNKNOWN')}</span></td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderWarRoomRadar(director) {
