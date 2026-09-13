@@ -55,8 +55,7 @@ if (missingRuntimeVariables.length > 0) {
 }
 
 export const ironDirector = new IronDirector({ nadiaAgent });
-const isDirectExecution = Boolean(process.argv[1] && path.resolve(process.argv[1]) === __filename);
-if (isDirectExecution && process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test') {
   ironDirector.startDaemon();
 }
 
@@ -1129,7 +1128,7 @@ const server = http.createServer(async (req, res) => {
 
 export { server };
 
-if (isDirectExecution) {
+if (process.env.TEST_NO_LISTEN !== 'true') {
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`🎮 TepatLaser AI Swarm HQ & Search Terms Vault is live on: http://localhost:${PORT}`);
   });

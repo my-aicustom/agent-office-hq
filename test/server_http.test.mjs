@@ -7,6 +7,7 @@ import http from 'node:http';
 
 // Set up test environment variables before server load
 process.env.NODE_ENV = 'test';
+process.env.TEST_NO_LISTEN = 'true';
 process.env.PORT = '0'; // dynamic port
 process.env.HQ_PASSWORD = 'test-master-password-super-secure';
 process.env.HQ_AUTH_SECRET = 'test-auth-secret-32-chars-long!!';
