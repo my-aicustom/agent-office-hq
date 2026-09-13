@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 .system_generated/
 data/
+graphify-out/
+orchestrate_swarm.py
+start_swarm_build.cmd
+

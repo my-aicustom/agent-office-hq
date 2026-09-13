@@ -58,6 +58,10 @@ export class BudiLeadsDb {
   constructor(filePath = process.env.BUDI_LEADS_FILE || DEFAULT_LEADS_FILE) {
     this.filePath = path.resolve(filePath);
     this.writeQueue = Promise.resolve();
+    this._cache = null;
+    this._dedupeIndex = new Map();
+    this._idIndex = new Map();
+    this._mtimeMs = 0;
   }
 
   queueWrite(operation) {
@@ -65,8 +69,36 @@ export class BudiLeadsDb {
     return this.writeQueue;
   }
 
-  readAll() {
-    return readCollection(this.filePath);
+  async _loadCache() {
+    try {
+      const stat = await fs.stat(this.filePath);
+      if (this._cache && stat.mtimeMs === this._mtimeMs) {
+        return this._cache;
+      }
+      const records = await readCollection(this.filePath);
+      this._cache = records;
+      this._mtimeMs = stat.mtimeMs;
+      this._dedupeIndex.clear();
+      this._idIndex.clear();
+      for (const record of records) {
+        if (record.dedupeKey) this._dedupeIndex.set(record.dedupeKey, record);
+        if (record.id) this._idIndex.set(record.id, record);
+      }
+      return this._cache;
+    } catch (err) {
+      if (err.code === 'ENOENT') {
+        this._cache = [];
+        this._dedupeIndex.clear();
+        this._idIndex.clear();
+        this._mtimeMs = 0;
+        return this._cache;
+      }
+      throw err;
+    }
+  }
+
+  async readAll() {
+    return (await this._loadCache()).slice();
   }
 
   /**
@@ -94,11 +126,10 @@ export class BudiLeadsDb {
     }
 
     return this.queueWrite(async () => {
-      const records = await this.readAll();
+      await this._loadCache();
       const dedupeKey = dedupeKeyFor(input);
-      if (dedupeKey) {
-        const existing = records.find(record => record.dedupeKey === dedupeKey);
-        if (existing) return { inserted: false, duplicate: true, lead: existing };
+      if (dedupeKey && this._dedupeIndex.has(dedupeKey)) {
+        return { inserted: false, duplicate: true, lead: this._dedupeIndex.get(dedupeKey) };
       }
 
       const createdAt = new Date().toISOString();
@@ -114,8 +145,16 @@ export class BudiLeadsDb {
         createdAt,
         updatedAt: createdAt
       };
-      records.push(lead);
-      await atomicWrite(this.filePath, records);
+      this._cache.push(lead);
+      if (dedupeKey) this._dedupeIndex.set(dedupeKey, lead);
+      this._idIndex.set(lead.id, lead);
+
+      await atomicWrite(this.filePath, this._cache);
+      try {
+        const stat = await fs.stat(this.filePath);
+        this._mtimeMs = stat.mtimeMs;
+      } catch {}
+
       return { inserted: true, duplicate: false, lead };
     });
   }

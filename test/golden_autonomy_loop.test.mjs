@@ -178,3 +178,74 @@ test('PrLifecycleMonitor blocks a PR closed without merge', async () => {
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('GoldenAutonomyScheduler throttles runs when daily dispatch cap is reached', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'golden-cap-'));
+  const runsPath = path.join(root, 'runs.json');
+  // Seed past runs with 2 dispatches within the last 24h
+  fs.writeFileSync(runsPath, JSON.stringify({
+    schemaVersion: 1,
+    records: [
+      { runId: 'RUN-1', startedAt: new Date().toISOString(), dispatchedCount: 2 }
+    ]
+  }));
+
+  const scheduler = new GoldenAutonomyScheduler({
+    enabled: true,
+    runsPath,
+    maxDailyDispatches: 2,
+    nadiaAgent: {
+      analyze: async () => ({ run: { runId: 'NADIA-PROOF' }, opportunities: [opportunity()] }),
+      createTask: async id => ({ taskId: `PROPOSAL-${id}` })
+    },
+    caseBus: {
+      processIncident: async () => ({ caseId: 'case-proof' })
+    }
+  });
+
+  try {
+    const run = await scheduler.runOnce();
+    assert.equal(run.status, 'DAILY_CAP_REACHED');
+    assert.equal(run.dispatchedCount, 0);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('PrLifecycleMonitor blocks deployment if any security check failed', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'golden-failing-check-'));
+  const ledger = new TaskLedgerDb({ dbPath: path.join(root, 'ledger.db') });
+  const task = createAwaitingReviewTask(ledger);
+  const monitor = new PrLifecycleMonitor({
+    ledger,
+    enabled: true,
+    githubToken: 'test-only',
+    fetchFn: async (url) => {
+      if (url.includes('/pulls/')) {
+        return { ok: true, json: async () => ({ state: 'closed', merged_at: '2026-08-29T02:00:00.000Z', merge_commit_sha: 'b'.repeat(40) }) };
+      }
+      if (url.includes('/check-runs')) {
+        return {
+          ok: true,
+          json: async () => ({
+            check_runs: [
+              { name: 'Build', status: 'completed', conclusion: 'success' },
+              { name: 'CodeQL Security Scan', status: 'completed', conclusion: 'failure' }
+            ]
+          })
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    }
+  });
+
+  try {
+    const sweep = await monitor.runOnce();
+    assert.equal(sweep.advanced, 0);
+    // Task remains in AWAITING_REVIEW because security check failed
+    assert.equal(ledger.getTask(task.id).state, TASK_STATES.AWAITING_REVIEW);
+  } finally {
+    ledger.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

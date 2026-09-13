@@ -97,6 +97,7 @@ export class GoldenAutonomyScheduler {
     maxDispatchesPerRun = positiveNumber(process.env.GOLDEN_AUTONOMY_MAX_DISPATCHES, 1),
     minScore = positiveNumber(process.env.GOLDEN_AUTONOMY_MIN_SCORE, 50),
     minImpressions = positiveNumber(process.env.GOLDEN_AUTONOMY_MIN_IMPRESSIONS, 10),
+    maxDailyDispatches = positiveNumber(process.env.GOLDEN_AUTONOMY_MAX_DAILY_DISPATCHES, 2),
     runsPath = process.env.GOLDEN_AUTONOMY_RUNS_PATH || DEFAULT_RUNS_PATH,
     now = () => new Date(),
     logger = console
@@ -108,6 +109,7 @@ export class GoldenAutonomyScheduler {
     this.intervalMs = intervalMs;
     this.runOnStart = Boolean(runOnStart);
     this.maxDispatchesPerRun = Math.max(1, Math.min(5, Math.floor(maxDispatchesPerRun)));
+    this.maxDailyDispatches = Math.max(1, Math.min(20, Math.floor(maxDailyDispatches)));
     this.minScore = minScore;
     this.minImpressions = minImpressions;
     this.runsPath = path.resolve(runsPath);
@@ -172,7 +174,31 @@ export class GoldenAutonomyScheduler {
       }
 
       run.eligibleCount = eligible.length;
-      for (const opportunity of eligible.slice(0, this.maxDispatchesPerRun)) {
+
+      // Check daily rate cap to prevent runaway autonomous PR creation
+      const pastRuns = await readRuns(this.runsPath);
+      const dayAgoMs = this.now().getTime() - 24 * 60 * 60 * 1000;
+      const dailyDispatches = pastRuns.reduce((sum, r) => {
+        const runTime = Date.parse(r.startedAt);
+        if (Number.isFinite(runTime) && runTime >= dayAgoMs) {
+          return sum + (Number(r.dispatchedCount) || 0);
+        }
+        return sum;
+      }, 0);
+
+      const remainingDailyQuota = Math.max(0, this.maxDailyDispatches - dailyDispatches);
+      if (remainingDailyQuota === 0) {
+        this.logger.warn(`[GoldenAutonomy] Daily dispatch limit reached (${dailyDispatches}/${this.maxDailyDispatches}). Throttling to prevent repository flooding.`);
+        run.status = 'DAILY_CAP_REACHED';
+        run.finishedAt = this.now().toISOString();
+        await appendRun(this.runsPath, run);
+        this.running = false;
+        this.lastRun = run;
+        return run;
+      }
+
+      const allowedThisRun = Math.min(this.maxDispatchesPerRun, remainingDailyQuota);
+      for (const opportunity of eligible.slice(0, allowedThisRun)) {
         const proposal = await this.nadiaAgent.createTask(opportunity.id);
         const fingerprint = evidenceFingerprint(opportunity);
         const casePacket = await this.caseBus.processIncident({

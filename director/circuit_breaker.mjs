@@ -1,4 +1,4 @@
-﻿// Iron Director — Multi-Provider Circuit Breaker
+// Iron Director — Multi-Provider Circuit Breaker
 // Protects the swarm from pounding failing LLMs and guarantees instant automatic failover.
 
 import { CIRCUIT_STATE, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
@@ -23,7 +23,8 @@ export class CircuitBreaker {
         lastFailure: null,
         lastSuccess: null,
         trippedAt: null,
-        totalErrors: 0
+        totalErrors: 0,
+        probeInFlight: false
       });
     }
     return this.providers.get(providerName);
@@ -42,15 +43,20 @@ export class CircuitBreaker {
 
     if (p.state === CIRCUIT_STATE.OPEN) {
       if (p.trippedAt && now - p.trippedAt >= this.cooldownMs) {
-        // Cooldown elapsed -> probe in HALF_OPEN state
+        // Cooldown elapsed -> transition to HALF_OPEN and claim the single probe slot
         p.state = CIRCUIT_STATE.HALF_OPEN;
+        p.probeInFlight = true;
         return true;
       }
       return false;
     }
 
     if (p.state === CIRCUIT_STATE.HALF_OPEN) {
-      // Allow single probe
+      // Allow single probe: block all concurrent requests while a probe is in flight
+      if (p.probeInFlight) {
+        return false;
+      }
+      p.probeInFlight = true;
       return true;
     }
 
@@ -64,6 +70,7 @@ export class CircuitBreaker {
     const p = this._getProviderState(providerName);
     p.lastSuccess = new Date().toISOString();
     p.successCount += 1;
+    p.probeInFlight = false;
 
     if (p.state === CIRCUIT_STATE.HALF_OPEN || p.failureCount > 0) {
       p.state = CIRCUIT_STATE.CLOSED;
@@ -84,6 +91,7 @@ export class CircuitBreaker {
     };
     p.totalErrors += 1;
     p.failureCount += 1;
+    p.probeInFlight = false;
 
     if (p.state === CIRCUIT_STATE.HALF_OPEN || p.failureCount >= this.threshold) {
       p.state = CIRCUIT_STATE.OPEN;
@@ -99,6 +107,7 @@ export class CircuitBreaker {
     p.state = CIRCUIT_STATE.CLOSED;
     p.failureCount = 0;
     p.trippedAt = null;
+    p.probeInFlight = false;
   }
 
   /**

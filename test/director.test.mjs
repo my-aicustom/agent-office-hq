@@ -1,4 +1,4 @@
-﻿// Unit tests for Iron Director Autonomous Supervisor Architecture
+// Unit tests for Iron Director Autonomous Supervisor Architecture
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -259,4 +259,60 @@ test('IronDirector orchestrates complete task lifecycle with self-healing handof
   assert.equal(ledger.getTask(t.task.id).state, TASK_STATES.RETRYING);
 
   cleanupTestLedger();
+});
+
+test('IronDirector.dispatch rejects mutating task when quorum is not met and transitions to AWAITING_REVIEW', async () => {
+  cleanupTestLedger();
+  const ledger = new TaskLedger({ filePath: TEST_LEDGER_PATH });
+
+  const director = new IronDirector({
+    ledger,
+    providerRouter: {
+      execute: async () => ({ provider: 'gemini', text: '{}', routeTrail: [] }),
+      getTelemetry: () => ({ providers: [] })
+    }
+  });
+
+  // caseBus is unconfigured or returns rejected quorum -> dispatch MUST fail closed
+  await assert.rejects(
+    async () => {
+      await director.dispatch({
+        title: 'Unauthorized Mutating Task',
+        permissions: ['WRITE_CODE'],
+        role: TASK_ROLES.SCOUT
+      });
+    },
+    (err) => {
+      assert.ok(err.message.includes('Quorum Gate Rejected'));
+      return true;
+    }
+  );
+
+  const tasks = ledger.listTasks({ limit: 10 });
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0].state, TASK_STATES.AWAITING_REVIEW);
+
+  cleanupTestLedger();
+});
+
+test('CircuitBreaker locks probeInFlight in HALF_OPEN preventing concurrent stampedes', () => {
+  const cb = new CircuitBreaker({ threshold: 1, cooldownMs: 60_000 });
+  cb.recordFailure('gemini', new Error('500 Error'));
+
+  // Move time past cooldown to transition to HALF_OPEN
+  const originalNow = Date.now;
+  try {
+    Date.now = () => originalNow() + 70_000;
+
+    // First probe claims the slot
+    assert.equal(cb.canExecute('gemini'), true);
+    // Second concurrent call while probe is in flight MUST be blocked
+    assert.equal(cb.canExecute('gemini'), false);
+
+    // Failure frees probe and trips back to OPEN
+    cb.recordFailure('gemini', new Error('Probe failed'));
+    assert.equal(cb.canExecute('gemini'), false);
+  } finally {
+    Date.now = originalNow;
+  }
 });

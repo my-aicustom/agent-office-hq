@@ -1,4 +1,4 @@
-﻿// Iron Director — Autonomous AI Swarm Supervisor Core Constants
+// Iron Director — Autonomous AI Swarm Supervisor Core Constants
 // Grounded in deterministic state transitions, strict RBAC, and circuit-breaker telemetry.
 
 export const TASK_STATES = Object.freeze({
@@ -34,6 +34,13 @@ export const TASK_PERMISSIONS = Object.freeze({
   PUBLISH: 'PUBLISH',
   ADS_MUTATION: 'ADS_MUTATION'
 });
+
+export const MUTATING_PERMISSIONS = Object.freeze(new Set([
+  TASK_PERMISSIONS.WRITE_CODE,
+  TASK_PERMISSIONS.DEPLOY,
+  TASK_PERMISSIONS.PUBLISH,
+  TASK_PERMISSIONS.ADS_MUTATION
+]));
 
 export const CIRCUIT_STATE = Object.freeze({
   CLOSED: 'CLOSED',       // Normal operation, all traffic allowed

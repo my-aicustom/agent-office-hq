@@ -1,4 +1,4 @@
-﻿// Iron Director — State Machine Engine
+// Iron Director — State Machine Engine
 // Validates and guarantees deterministic, unforgeable task lifecycle transitions.
 
 import { TASK_STATES } from './constants.mjs';
@@ -8,6 +8,7 @@ const ALLOWED_TRANSITIONS = {
   [TASK_STATES.QUEUED]: [TASK_STATES.CLAIMED, TASK_STATES.BLOCKED, TASK_STATES.ESCALATED],
   [TASK_STATES.CLAIMED]: [
     TASK_STATES.RUNNING,
+    TASK_STATES.AWAITING_REVIEW,
     TASK_STATES.RETRYING,
     TASK_STATES.QUEUED,
     TASK_STATES.BLOCKED,

@@ -1,4 +1,4 @@
-import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
+import { TASK_STATES, TASK_ROLES, TASK_PERMISSIONS, MUTATING_PERMISSIONS, DEFAULT_DIRECTOR_CONFIG } from './constants.mjs';
 import { TaskLedger } from './task_ledger.mjs';
 import { TaskLedgerDb } from './task_ledger_db.mjs';
 import { CircuitBreaker } from './circuit_breaker.mjs';
@@ -6,7 +6,7 @@ import { ProviderRouter } from './providers/provider_router.mjs';
 import { VerifierGate } from './verifier_gate.mjs';
 import { SentryWatcher } from './sentry_watcher.mjs';
 import { PersistentDedup } from './persistent_dedup.mjs';
-import { QuorumEngine } from './quorum_engine.mjs';
+import { QuorumEngine, QUORUM_STATES } from './quorum_engine.mjs';
 import { ActiveTaskConsumer } from './active_task_consumer.mjs';
 import { SharedCaseBus } from './shared_case_bus.mjs';
 import { SeoPageExecutor } from './executors/seo_page_executor.mjs';
@@ -143,7 +143,8 @@ export class IronDirector {
     userPrompt = '',
     verificationRules = {},
     artifactType = 'json',
-    preferredProvider = null
+    preferredProvider = null,
+    requireQuorum = false
   } = {}) {
     // 1. Task Ledger Registration & Idempotency Gate
     const registration = this.ledger.createTask({
@@ -168,6 +169,54 @@ export class IronDirector {
     // 2. Claim Lease
     const leasedTask = this.ledger.claimTask(taskId, owner);
     const fencingToken = leasedTask?.fencingToken ?? null;
+
+    // 2b. Quorum Gate: Mutating actions or explicit requireQuorum MUST pass multi-provider consensus
+    const isMutating = Array.isArray(permissions) && permissions.some(p => MUTATING_PERMISSIONS.has(p));
+    const requiresQuorumCheck = requireQuorum || isMutating;
+
+    if (requiresQuorumCheck) {
+      console.log(`[IronDirector] Task '${taskId}' requires quorum approval before execution.`);
+      if (!this.caseBus) {
+        this.ledger.transition(taskId, TASK_STATES.AWAITING_REVIEW, {
+          actor: 'quorum-gate',
+          reason: 'Mutating task held: Shared Case Bus is not configured.',
+          fencingToken
+        });
+        const err = new Error(`Quorum Gate Rejected: Task '${title}' requires quorum consensus but Shared Case Bus is unconfigured.`);
+        err.code = 'QUORUM_UNAVAILABLE';
+        throw err;
+      }
+
+      const casePacket = await this.caseBus.processIncident({
+        title: `Dispatch Quorum: ${title}`,
+        type: 'MUTATING_TASK_EXECUTION',
+        severity: isMutating ? 'HIGH' : 'MEDIUM',
+        source: 'iron_director_dispatch',
+        metadata: {
+          requestedActionType: input.actionType || 'MUTATING_TASK_EXECUTION',
+          taskId,
+          owner,
+          permissions,
+          input
+        }
+      });
+
+      const actualCase = casePacket?.caseId ? (this.caseBus.getCase(casePacket.caseId) || casePacket) : casePacket;
+      const quorumStatus = actualCase?.quorumResult?.status;
+
+      if (quorumStatus !== QUORUM_STATES.QUORUM_MET) {
+        this.ledger.transition(taskId, TASK_STATES.AWAITING_REVIEW, {
+          actor: 'quorum-gate',
+          reason: `Quorum rejected (${quorumStatus || 'NO_QUORUM'}): held for manual operator review.`,
+          evidence: { quorumResult: actualCase?.quorumResult || null, caseId: actualCase?.caseId || null },
+          fencingToken
+        });
+        const err = new Error(`Quorum Gate Rejected: Mutating task '${title}' requires approval from at least 2 independent providers. Quorum status: ${quorumStatus || 'NO_QUORUM'}.`);
+        err.code = 'QUORUM_REJECTED';
+        err.quorumResult = actualCase?.quorumResult;
+        throw err;
+      }
+    }
 
     // 3. Mark RUNNING
     this.ledger.transition(taskId, TASK_STATES.RUNNING, {
@@ -323,6 +372,7 @@ export class IronDirector {
       this.reconcileTimer = setInterval(() => {
         this.reconcile();
       }, this.config.reconciliationIntervalMs);
+      this.reconcileTimer.unref();
     }
     // 2. Start Active Task Consumer
     this.consumer.start();

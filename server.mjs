@@ -14,6 +14,9 @@ import { gilangAgent } from './agents/gilang/agent.mjs';
 import { buildControlRoomSnapshot } from './director/control_room_snapshot.mjs';
 import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
 import { IronDirector } from './director/iron_director.mjs';
+import { SecurityStore } from './director/security_store.mjs';
+
+export const securityStore = new SecurityStore();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,7 +55,10 @@ if (missingRuntimeVariables.length > 0) {
 }
 
 export const ironDirector = new IronDirector({ nadiaAgent });
-ironDirector.startDaemon();
+const isDirectExecution = Boolean(process.argv[1] && path.resolve(process.argv[1]) === __filename);
+if (isDirectExecution && process.env.NODE_ENV !== 'test') {
+  ironDirector.startDaemon();
+}
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -81,17 +87,26 @@ const MAX_TRACKED_LOGIN_IPS = 10000;
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 const loginFailuresByIp = new Map();
 
+const DEFAULT_SESSION_TTL_HOURS = 24;
+function getSessionTtlHours() {
+  const parsed = Number(process.env.HQ_SESSION_TTL_HOURS);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_SESSION_TTL_HOURS;
+}
+
 // Token utilities
-function generateToken(payload = {}) {
+export function generateToken(payload = {}) {
   const data = JSON.stringify({ ...payload, timestamp: Date.now() });
   const dataB64 = Buffer.from(data).toString('base64url');
   const signature = crypto.createHmac('sha256', AUTH_SECRET).update(dataB64).digest('base64url');
   return `${dataB64}.${signature}`;
 }
 
-function verifyToken(token) {
+export function verifyToken(token) {
   try {
     if (typeof token !== 'string') return false;
+
+    // Check token revocation list (Issue #2)
+    if (securityStore.isTokenRevoked(token)) return false;
 
     const parts = token.split('.');
     if (parts.length !== 2) return false;
@@ -109,7 +124,7 @@ function verifyToken(token) {
     const decoded = JSON.parse(Buffer.from(dataB64, 'base64url').toString('utf8'));
     const timestamp = decoded?.timestamp;
     const now = Date.now();
-    const maxTokenAgeMs = 30 * 24 * 60 * 60 * 1000;
+    const maxTokenAgeMs = getSessionTtlHours() * 60 * 60 * 1000;
 
     if (!Number.isFinite(timestamp)) return false;
     if (timestamp > now) return false;
@@ -361,9 +376,12 @@ const server = http.createServer(async (req, res) => {
     const clientIp = getClientIp(req);
     const now = Date.now();
     const failureState = getLoginFailureState(clientIp, now);
+    const isRateLimited = (failureState?.count >= MAX_LOGIN_FAILURES) ||
+      securityStore.isIpBlocked(clientIp, { maxFailures: MAX_LOGIN_FAILURES, lockDurationMs: LOGIN_WINDOW_MS, nowMs: now });
 
-    if (failureState?.count >= MAX_LOGIN_FAILURES) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((LOGIN_WINDOW_MS - (now - failureState.windowStartedAt)) / 1000));
+    if (isRateLimited) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((LOGIN_WINDOW_MS - (now - (failureState?.windowStartedAt || now))) / 1000));
+      securityStore.logAudit({ actor: 'unknown', ip: clientIp, action: 'AUTH_LOGIN_BLOCKED', status: 'RATE_LIMITED' });
       res.writeHead(429, {
         'Content-Type': 'application/json; charset=utf-8',
         'Retry-After': String(retryAfterSeconds)
@@ -380,12 +398,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     const passwordInput = typeof body.password === 'string' ? body.password.trim() : '';
+    const username = (typeof body.username === 'string' && body.username.trim()) ? body.username.trim() : 'boss';
 
     if (passwordInput === MASTER_PASSWORD) {
       loginFailuresByIp.delete(clientIp);
-      const token = generateToken({ role: 'admin', user: 'boss' });
+      securityStore.clearLoginFailures(clientIp);
+      const token = generateToken({ role: 'admin', user: username });
       const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
-      res.setHeader('Set-Cookie', `hq_session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000${secureCookie}`);
+      const sessionTtlSec = getSessionTtlHours() * 3600;
+      res.setHeader('Set-Cookie', `hq_session_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionTtlSec}${secureCookie}`);
+      securityStore.logAudit({ actor: username, ip: clientIp, action: 'AUTH_LOGIN', status: 'SUCCESS' });
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         status: 'success',
@@ -395,6 +417,8 @@ const server = http.createServer(async (req, res) => {
       return;
     } else {
       recordLoginFailure(clientIp, now);
+      securityStore.recordLoginFailure(clientIp, { maxFailures: MAX_LOGIN_FAILURES, lockDurationMs: LOGIN_WINDOW_MS, nowMs: now });
+      securityStore.logAudit({ actor: username, ip: clientIp, action: 'AUTH_LOGIN', status: 'FAILED' });
       res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({
         status: 'error',
@@ -402,6 +426,25 @@ const server = http.createServer(async (req, res) => {
       }));
       return;
     }
+  }
+
+  // 1b. Auth Endpoint: Logout (Revoke Token)
+  if (reqPath === '/api/auth/logout' && req.method === 'POST') {
+    res.setHeader('Cache-Control', 'no-store');
+    const token = getRequestToken(req);
+    const session = verifyToken(token);
+    const clientIp = getClientIp(req);
+    if (token) {
+      securityStore.revokeToken(token);
+      if (session) {
+        securityStore.logAudit({ actor: session.user || 'boss', ip: clientIp, action: 'AUTH_LOGOUT', status: 'SUCCESS' });
+      }
+    }
+    const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `hq_session_token=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie}`);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ status: 'success', message: 'SESSION_REVOKED' }));
+    return;
   }
 
   // 2. Auth Endpoint: Verify Token
@@ -789,6 +832,17 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (reqPath === '/api/audit-logs' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store');
+      const limit = Number(parsedUrl.searchParams.get('limit')) || 50;
+      const action = parsedUrl.searchParams.get('action') || null;
+      const actor = parsedUrl.searchParams.get('actor') || null;
+      const logs = securityStore.getAuditLogs({ limit, action, actor });
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ status: 'success', count: logs.length, logs }, null, 2));
+      return;
+    }
+
     if (reqPath === '/api/director/dispatch' && req.method === 'POST') {
       let body;
       try {
@@ -804,13 +858,39 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
+      securityStore.logAudit({
+        actor: session.user || 'boss',
+        ip: getClientIp(req),
+        action: 'DIRECTOR_DISPATCH',
+        target: body.title,
+        status: 'PENDING',
+        details: { permissions: body.permissions, role: body.role }
+      });
+
       try {
-        const result = await ironDirector.dispatch(body);
+        const result = await ironDirector.dispatch({ ...body, owner: body.owner || session.user || 'boss' });
+        securityStore.logAudit({
+          actor: session.user || 'boss',
+          ip: getClientIp(req),
+          action: 'DIRECTOR_DISPATCH',
+          target: body.title,
+          status: 'SUCCESS',
+          details: { taskId: result.id, state: result.state }
+        });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ status: 'success', task: result }, null, 2));
       } catch (error) {
-        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ status: 'error', message: error.message }, null, 2));
+        securityStore.logAudit({
+          actor: session.user || 'boss',
+          ip: getClientIp(req),
+          action: 'DIRECTOR_DISPATCH',
+          target: body.title,
+          status: 'FAILED',
+          details: { error: error.message, code: error.code }
+        });
+        const statusCode = error.code === 'QUORUM_REJECTED' ? 403 : (error.code === 'QUORUM_UNAVAILABLE' ? 503 : 500);
+        res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ status: 'error', code: error.code || 'DISPATCH_ERROR', message: error.message }, null, 2));
       }
       return;
     }
@@ -1011,9 +1091,12 @@ const server = http.createServer(async (req, res) => {
     if (reqPath === '/api/system-status') {
       const statusData = {
         status: 'ONLINE',
-        vps: '163.61.44.41: OK',
-        fleet: ['tepatlaser.com', 'rajacuttinglaser.com', 'jasalasercutting.com'],
-        uptime: process.uptime()
+        nodeVersion: process.version,
+        platform: process.platform,
+        uptimeSeconds: Math.floor(process.uptime()),
+        memoryUsageMb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+        activeTasks: ironDirector.ledger?.countActiveTasks?.() ?? 0,
+        timestamp: new Date().toISOString()
       };
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(statusData, null, 2));
@@ -1044,9 +1127,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🎮 TepatLaser AI Swarm HQ & Search Terms Vault is live on: http://localhost:${PORT}`);
-});
+export { server };
+
+if (isDirectExecution) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🎮 TepatLaser AI Swarm HQ & Search Terms Vault is live on: http://localhost:${PORT}`);
+  });
+}
 
 // Live SERP audit scheduler — periodically refreshes keyword rankings from
 // Google Search Console (see serp_auditor.mjs). Disabled until
@@ -1062,27 +1149,14 @@ async function runSerpRefresh() {
   }
 }
 
-if (isGscConfigured()) {
-  runSerpRefresh();
-  setInterval(runSerpRefresh, REFRESH_INTERVAL_HOURS * 60 * 60 * 1000);
-} else {
-  console.warn('⚠️ [SERP] GSC_SERVICE_ACCOUNT_JSON not set — SERP dashboard will show "no data" until configured. See README.md "Setup Google Search Console".');
-}
-
-// Maya activity sync — pulls her real publish/rank log from the tepatlaser
-// repo (public raw file, no auth needed) so the dashboard reflects real work
-// instead of the old hardcoded KPI card. See agents/maya/sync.mjs.
-const MAYA_SYNC_INTERVAL_HOURS = Number(process.env.MAYA_SYNC_INTERVAL_HOURS) || 6;
-
-async function runMayaSync() {
-  try {
-    const { errors } = await mayaAgent.sync();
-    if (errors.length) console.warn(`⚠️ [MAYA] sync completed with warnings: ${errors.join('; ')}`);
-    else console.log(`✅ [MAYA] activity sync done at ${new Date().toISOString()}`);
-  } catch (e) {
-    console.error(`❌ [MAYA] activity sync failed: ${e.message}`);
+if (process.env.NODE_ENV !== 'test') {
+  if (isGscConfigured()) {
+    runSerpRefresh();
+    setInterval(runSerpRefresh, REFRESH_INTERVAL_HOURS * 60 * 60 * 1000);
+  } else {
+    console.warn('⚠️ [SERP] GSC_SERVICE_ACCOUNT_JSON not set — SERP dashboard will show "no data" until configured. See README.md "Setup Google Search Console".');
   }
-}
 
-runMayaSync();
-setInterval(runMayaSync, MAYA_SYNC_INTERVAL_HOURS * 60 * 60 * 1000);
+  runMayaSync();
+  setInterval(runMayaSync, MAYA_SYNC_INTERVAL_HOURS * 60 * 60 * 1000);
+}

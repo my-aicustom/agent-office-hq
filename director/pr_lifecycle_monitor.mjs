@@ -57,6 +57,19 @@ export class PrLifecycleMonitor {
   async _verifyChecks(repository, sha) {
     const result = await this._githubJson(`/repos/${repository}/commits/${sha}/check-runs?per_page=100`);
     const checks = Array.isArray(result.check_runs) ? result.check_runs : [];
+
+    // Security Gate: Any failing or cancelled check run (including CodeQL) MUST block verification
+    const failingChecks = checks.filter(check =>
+      ['failure', 'cancelled', 'timed_out', 'action_required'].includes(String(check.conclusion || '').toLowerCase())
+    );
+    if (failingChecks.length > 0) {
+      return {
+        verified: false,
+        reason: `CI/Security checks failed: ${failingChecks.map(c => c.name).join(', ')}`,
+        checks: checks.map(check => ({ name: check.name, status: check.status, conclusion: check.conclusion, url: check.html_url }))
+      };
+    }
+
     const required = checks.filter(check => !String(check.name || '').startsWith('CodeQL'));
     return {
       verified: required.length > 0 && required.every(check => check.status === 'completed' && check.conclusion === 'success'),
