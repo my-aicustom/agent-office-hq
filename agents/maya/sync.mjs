@@ -2,15 +2,20 @@ import fs from 'fs';
 import path from 'path';
 
 const STATUS_URL = process.env.MAYA_STATUS_URL
-  || 'https://raw.githubusercontent.com/heriscaleup/tepatlaser/main/data/maya-status.json';
+  || 'https://raw.githubusercontent.com/my-aicustom/tepatlaser/main/data/maya-status.json';
 const RANKINGS_URL = process.env.MAYA_RANKINGS_URL
-  || 'https://raw.githubusercontent.com/heriscaleup/tepatlaser/main/data/rankings/history.json';
+  || 'https://raw.githubusercontent.com/my-aicustom/tepatlaser/main/data/rankings/history.json';
 
 const LOCAL_STATUS_PATH = path.resolve('D:/code/tepatlaser/data/maya-status.json');
 const LOCAL_RANKINGS_PATH = path.resolve('D:/code/tepatlaser/data/rankings/history.json');
 
 async function fetchJson(url) {
-  const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache' } });
+  const headers = { 'Cache-Control': 'no-cache' };
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    headers['Authorization'] = `token ${token}`;
+  }
+  const res = await fetch(url, { headers });
   if (res.status === 404) {
     return { data: null, notFound: true };
   }
@@ -52,7 +57,12 @@ export async function fetchMayaSource() {
   if (!status) {
     try {
       const result = await fetchJson(STATUS_URL);
-      status = result.notFound ? { schemaVersion: 1, updatedAt: null, runs: [] } : result.data;
+      if (result.notFound) {
+        errors.push(`maya-status.json: HTTP 404 (verify MAYA_STATUS_URL or GITHUB_TOKEN if private repo)`);
+        status = { schemaVersion: 1, updatedAt: null, runs: [] };
+      } else {
+        status = result.data;
+      }
     } catch (error) {
       errors.push(`maya-status.json: ${error.message}`);
     }
@@ -61,7 +71,12 @@ export async function fetchMayaSource() {
   if (!rankings) {
     try {
       const result = await fetchJson(RANKINGS_URL);
-      rankings = result.notFound ? { schemaVersion: 1, snapshots: [] } : result.data;
+      if (result.notFound) {
+        errors.push(`rankings/history.json: HTTP 404 (verify MAYA_RANKINGS_URL or GITHUB_TOKEN if private repo)`);
+        rankings = { schemaVersion: 1, snapshots: [] };
+      } else {
+        rankings = result.data;
+      }
     } catch (error) {
       errors.push(`rankings/history.json: ${error.message}`);
     }
