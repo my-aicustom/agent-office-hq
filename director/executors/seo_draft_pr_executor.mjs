@@ -8,13 +8,13 @@ const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 export class SeoDraftPrExecutor {
   constructor({
     repositoryUrl = process.env.SEO_TARGET_REPOSITORY,
-    repositorySlug = process.env.SEO_TARGET_REPOSITORY_SLUG,
+    repositorySlug = process.env.SEO_TARGET_REPOSITORY_SLUG || 'my-aicustom/tepatlaser',
     baseBranch = process.env.SEO_TARGET_BASE_BRANCH || 'main',
     contentDir = process.env.SEO_TARGET_CONTENT_DIR || 'src/content/blog',
     workRoot = process.env.SEO_TARGET_WORK_ROOT || path.resolve('data/executor-workspaces'),
     sshKeyPath = process.env.SEO_TARGET_SSH_KEY_PATH,
     knownHostsPath = process.env.SEO_TARGET_KNOWN_HOSTS_PATH,
-    githubApiToken = process.env.SEO_TARGET_GITHUB_API_TOKEN,
+    githubApiToken = process.env.SEO_TARGET_GITHUB_API_TOKEN || process.env.GITHUB_TOKEN,
     sshHost = process.env.SEO_TARGET_SSH_HOST || 'github.com',
     sshPort = Number(process.env.SEO_TARGET_SSH_PORT || 22),
     fetchFn = globalThis.fetch,
@@ -38,32 +38,46 @@ export class SeoDraftPrExecutor {
     this.pollTimeoutMs = pollTimeoutMs;
   }
 
-  _assertConfigured() {
-    const missing = [];
-    for (const [name, value] of Object.entries({
-      SEO_TARGET_REPOSITORY: this.repositoryUrl,
-      SEO_TARGET_REPOSITORY_SLUG: this.repositorySlug,
-      SEO_TARGET_SSH_KEY_PATH: this.sshKeyPath,
-      SEO_TARGET_KNOWN_HOSTS_PATH: this.knownHostsPath
-    })) {
-      if (!value) missing.push(name);
+  _resolveRepositoryUrl() {
+    if (this.repositoryUrl) return this.repositoryUrl;
+    if (this.githubApiToken) {
+      return `https://x-access-token:${this.githubApiToken}@github.com/${this.repositorySlug}.git`;
     }
-    if (missing.length) throw new Error(`SEO Draft PR executor is not configured: ${missing.join(', ')}`);
+    return `git@github.com:${this.repositorySlug}.git`;
+  }
+
+  _assertConfigured() {
+    if (!this.repositorySlug) throw new Error('SEO Draft PR executor is not configured: SEO_TARGET_REPOSITORY_SLUG');
     if (!/^[a-z0-9_.-]+\/[a-z0-9_.-]+$/i.test(this.repositorySlug)) throw new Error('Invalid SEO target repository slug.');
     if (!/^[a-z0-9._/-]+$/i.test(this.baseBranch) || this.baseBranch.includes('..')) throw new Error('Invalid SEO target base branch.');
     if (this.contentDir !== 'src/content/blog') throw new Error('SEO executor content boundary must be src/content/blog.');
-    if (!['github.com', 'ssh.github.com'].includes(this.sshHost) || ![22, 443].includes(this.sshPort)) throw new Error('Invalid SEO target SSH endpoint.');
-    if (!fs.existsSync(this.sshKeyPath) || !fs.existsSync(this.knownHostsPath)) throw new Error('SEO target SSH material is unavailable.');
+
+    const repoUrl = this._resolveRepositoryUrl();
+    const isSsh = repoUrl.startsWith('git@') || repoUrl.startsWith('ssh://');
+
+    if (isSsh) {
+      const missing = [];
+      if (!this.sshKeyPath) missing.push('SEO_TARGET_SSH_KEY_PATH');
+      if (!this.knownHostsPath) missing.push('SEO_TARGET_KNOWN_HOSTS_PATH');
+      if (missing.length) throw new Error(`SEO Draft PR executor is not configured: ${missing.join(', ')}`);
+      if (!['github.com', 'ssh.github.com'].includes(this.sshHost) || ![22, 443].includes(this.sshPort)) throw new Error('Invalid SEO target SSH endpoint.');
+      if (!fs.existsSync(this.sshKeyPath) || !fs.existsSync(this.knownHostsPath)) throw new Error('SEO target SSH material is unavailable.');
+    } else {
+      if (!this.githubApiToken) throw new Error('SEO Draft PR executor is not configured: SEO_TARGET_GITHUB_API_TOKEN');
+    }
   }
 
   _gitEnvironment() {
-    const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
-    const hostAlias = this.sshHost === 'ssh.github.com' ? 'ssh.github.com' : 'github.com';
-    return {
+    const env = {
       ...process.env,
-      GIT_TERMINAL_PROMPT: '0',
-      GIT_SSH_COMMAND: `ssh -p ${this.sshPort} -o HostName=${this.sshHost} -o HostKeyAlias=${hostAlias} -i ${quote(this.sshKeyPath)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${quote(this.knownHostsPath)}`
+      GIT_TERMINAL_PROMPT: '0'
     };
+    if (this.sshKeyPath && fs.existsSync(this.sshKeyPath)) {
+      const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
+      const hostAlias = this.sshHost === 'ssh.github.com' ? 'ssh.github.com' : 'github.com';
+      env.GIT_SSH_COMMAND = `ssh -p ${this.sshPort} -o HostName=${this.sshHost} -o HostKeyAlias=${hostAlias} -i ${quote(this.sshKeyPath)} -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=${quote(this.knownHostsPath)}`;
+    }
+    return env;
   }
 
   _exec(command, args, options = {}) {
@@ -198,7 +212,8 @@ Proses ${keyword} yang terkendali dimulai dari spesifikasi yang dapat diperiksa.
     fs.mkdirSync(this.workRoot, { recursive: true });
 
     try {
-      this.execFn('git', ['clone', '--single-branch', '--branch', this.baseBranch, this.repositoryUrl, workspace], {
+      const repoUrl = this._resolveRepositoryUrl();
+      this.execFn('git', ['clone', '--single-branch', '--branch', this.baseBranch, repoUrl, workspace], {
         cwd: this.workRoot,
         env: this._gitEnvironment()
       });

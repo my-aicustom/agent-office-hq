@@ -21,7 +21,7 @@ export class PrLifecycleMonitor {
   constructor({
     ledger,
     enabled = process.env.PR_LIFECYCLE_MONITOR_ENABLED === 'true',
-    githubToken = process.env.SEO_TARGET_GITHUB_API_TOKEN,
+    githubToken = process.env.SEO_TARGET_GITHUB_API_TOKEN || process.env.GITHUB_TOKEN,
     productionBaseUrl = process.env.SEO_PRODUCTION_BASE_URL || 'https://tepatlaser.com',
     intervalMs = positiveNumber(process.env.PR_LIFECYCLE_MONITOR_INTERVAL_MS, 5 * 60 * 1000),
     fetchFn = globalThis.fetch,

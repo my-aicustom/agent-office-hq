@@ -112,3 +112,71 @@ test('SeoDraftPrExecutor fails closed when SSH configuration is absent', async (
   });
   await assert.rejects(executor.execute({ taskId: 'task-proof-003', keyword: 'audit file laser cutting produksi' }), /not configured/i);
 });
+
+test('SeoDraftPrExecutor supports token-based HTTPS git operations without SSH material', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'seo-token-executor-'));
+  const commands = [];
+  let workspace;
+  let targetPath;
+  const commitSha = 'b'.repeat(40);
+
+  const execFn = (command, args, options = {}) => {
+    commands.push({ command, args, options });
+    if (command !== 'git') return '';
+    if (args[0] === 'clone') {
+      workspace = args.at(-1);
+      fs.mkdirSync(path.join(workspace, 'src/content/blog'), { recursive: true });
+    }
+    if (args[0] === 'diff') {
+      const names = fs.readdirSync(path.join(workspace, 'src/content/blog'));
+      targetPath = `src/content/blog/${names[0]}`;
+      return targetPath;
+    }
+    if (args[0] === 'rev-parse') return commitSha;
+    return '';
+  };
+
+  const fetchFn = async url => {
+    if (String(url).endsWith('/files')) {
+      return { ok: true, json: async () => [{ filename: targetPath }] };
+    }
+    return {
+      ok: true,
+      json: async () => [{
+        number: 43,
+        html_url: 'https://github.com/my-aicustom/tepatlaser/pull/43',
+        url: 'https://api.github.com/repos/my-aicustom/tepatlaser/pulls/43',
+        draft: true,
+        head: { sha: commitSha },
+        base: { ref: 'main' }
+      }]
+    };
+  };
+
+  const executor = new SeoDraftPrExecutor({
+    repositorySlug: 'my-aicustom/tepatlaser',
+    githubApiToken: 'ghp_mock_token_12345',
+    workRoot: path.join(root, 'work'),
+    execFn,
+    fetchFn,
+    pollIntervalMs: 1,
+    pollTimeoutMs: 50
+  });
+
+  try {
+    const result = await executor.execute({
+      taskId: 'task-token-001',
+      keyword: 'panduan file laser cutting akurat',
+      intent: 'informational',
+      cluster: 'design'
+    });
+
+    assert.equal(result.action, 'SEO_DRAFT_PR_CREATED');
+    assert.equal(result.pullRequest.draft, true);
+    assert.equal(result.pullRequest.number, 43);
+    const cloneCmd = commands.find(item => item.args[0] === 'clone');
+    assert.ok(cloneCmd.args.includes('https://x-access-token:ghp_mock_token_12345@github.com/my-aicustom/tepatlaser.git'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
