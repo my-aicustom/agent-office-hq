@@ -36,12 +36,12 @@ export class ContractorPmoStore {
       'PRAGMA synchronous=FULL;',
       'PRAGMA busy_timeout=5000;',
       'PRAGMA foreign_keys=ON;',
-      'CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL, title TEXT NOT NULL, customer_name TEXT NOT NULL, customer_phone TEXT, customer_email TEXT, project_type TEXT NOT NULL, site_address TEXT, site_city TEXT, stage TEXT NOT NULL, previous_stage TEXT, priority TEXT NOT NULL DEFAULT "NORMAL", owner TEXT, source TEXT NOT NULL DEFAULT "MANUAL", estimated_value REAL, budget_cap REAL, target_start_date TEXT, target_finish_date TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT);',
+      "CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, code TEXT UNIQUE NOT NULL, title TEXT NOT NULL, customer_name TEXT NOT NULL, customer_phone TEXT, customer_email TEXT, project_type TEXT NOT NULL, site_address TEXT, site_city TEXT, stage TEXT NOT NULL, previous_stage TEXT, priority TEXT NOT NULL DEFAULT 'NORMAL', owner TEXT, source TEXT NOT NULL DEFAULT 'MANUAL', estimated_value REAL, budget_cap REAL, target_start_date TEXT, target_finish_date TEXT, notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, closed_at TEXT);",
       'CREATE INDEX IF NOT EXISTS idx_projects_stage ON projects(stage,updated_at DESC);',
       'CREATE INDEX IF NOT EXISTS idx_projects_phone ON projects(customer_phone);',
-      'CREATE TABLE IF NOT EXISTS project_tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, stage TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT "NOT_STARTED", assignee_type TEXT NOT NULL DEFAULT "HUMAN", assignee TEXT, due_at TEXT, blocked_reason TEXT, director_task_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);',
-      'CREATE TABLE IF NOT EXISTS project_risks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, category TEXT NOT NULL, probability INTEGER NOT NULL, impact INTEGER NOT NULL, score INTEGER NOT NULL, status TEXT NOT NULL DEFAULT "OPEN", description TEXT NOT NULL, mitigation TEXT, owner TEXT, due_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);',
-      'CREATE TABLE IF NOT EXISTS project_approvals (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, approval_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT "PENDING", requested_by TEXT, decided_by TEXT, amount REAL, note TEXT, requested_at TEXT NOT NULL, decided_at TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);',
+      "CREATE TABLE IF NOT EXISTS project_tasks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, stage TEXT NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'NOT_STARTED', assignee_type TEXT NOT NULL DEFAULT 'HUMAN', assignee TEXT, due_at TEXT, blocked_reason TEXT, director_task_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
+      "CREATE TABLE IF NOT EXISTS project_risks (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, category TEXT NOT NULL, probability INTEGER NOT NULL, impact INTEGER NOT NULL, score INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', description TEXT NOT NULL, mitigation TEXT, owner TEXT, due_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
+      "CREATE TABLE IF NOT EXISTS project_approvals (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, approval_type TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', requested_by TEXT, decided_by TEXT, amount REAL, note TEXT, requested_at TEXT NOT NULL, decided_at TEXT, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);",
       'CREATE TABLE IF NOT EXISTS project_communications (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, channel TEXT NOT NULL, direction TEXT NOT NULL, external_id TEXT, contact TEXT, body TEXT NOT NULL, metadata TEXT, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);',
       'CREATE TABLE IF NOT EXISTS project_activities (event_id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, event_type TEXT NOT NULL, actor TEXT NOT NULL, payload TEXT, created_at TEXT NOT NULL, FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE);'
     ].join('\n'));
@@ -94,7 +94,7 @@ export class ContractorPmoStore {
           money(input.estimatedValue), money(input.budgetCap), clean(input.targetStartDate,40), clean(input.targetFinishDate,40),
           clean(input.notes,4000), t, t, stage === PROJECT_STAGES.COMPLETED ? t : null);
 
-      const addTask = this.db.prepare('INSERT INTO project_tasks(id,project_id,stage,category,title,status,assignee_type,created_at,updated_at) VALUES(?,?,?,?,?,"NOT_STARTED","HUMAN",?,?)');
+      const addTask = this.db.prepare("INSERT INTO project_tasks(id,project_id,stage,category,title,status,assignee_type,created_at,updated_at) VALUES(?,?,?,?,?,'NOT_STARTED','HUMAN',?,?)");
       for (const item of DEFAULT_PROJECT_CHECKLIST) addTask.run(id('ptask'), projectId, item.stage, item.category, item.title, t, t);
       this.activity(projectId, 'PROJECT_CREATED', actor, { stage, source: input.source || 'MANUAL' });
       for (const type of STAGE_AUTO_APPROVAL_REQUESTS[stage] || []) this.ensureApproval(projectId, type, actor);
@@ -106,12 +106,12 @@ export class ContractorPmoStore {
     const max = Math.max(1, Math.min(500, Number(limit) || 200));
     const rows = stage
       ? this.db.prepare('SELECT * FROM projects WHERE stage=? ORDER BY updated_at DESC LIMIT ?').all(stage, max)
-      : this.db.prepare('SELECT * FROM projects ORDER BY CASE WHEN stage IN ("COMPLETED","CANCELLED") THEN 1 ELSE 0 END, updated_at DESC LIMIT ?').all(max);
+      : this.db.prepare("SELECT * FROM projects ORDER BY CASE WHEN stage IN ('COMPLETED','CANCELLED') THEN 1 ELSE 0 END, updated_at DESC LIMIT ?").all(max);
     return rows.map(r => {
       const p = this.hydrate(r);
-      p.pendingApprovals = Number(this.db.prepare('SELECT COUNT(*) c FROM project_approvals WHERE project_id=? AND status="PENDING"').get(p.id)?.c || 0);
-      p.highRisks = Number(this.db.prepare('SELECT COUNT(*) c FROM project_risks WHERE project_id=? AND status="OPEN" AND score>=12').get(p.id)?.c || 0);
-      p.blockedTasks = Number(this.db.prepare('SELECT COUNT(*) c FROM project_tasks WHERE project_id=? AND status="BLOCKED"').get(p.id)?.c || 0);
+      p.pendingApprovals = Number(this.db.prepare("SELECT COUNT(*) c FROM project_approvals WHERE project_id=? AND status='PENDING'").get(p.id)?.c || 0);
+      p.highRisks = Number(this.db.prepare("SELECT COUNT(*) c FROM project_risks WHERE project_id=? AND status='OPEN' AND score>=12").get(p.id)?.c || 0);
+      p.blockedTasks = Number(this.db.prepare("SELECT COUNT(*) c FROM project_tasks WHERE project_id=? AND status='BLOCKED'").get(p.id)?.c || 0);
       p.health = this.health(p);
       p.gate = this.getTransitionGate(p.id, p.nextStage);
       return p;
@@ -134,16 +134,16 @@ export class ContractorPmoStore {
   findProjectByPhone(phone) {
     const normalized = normalizePhone(phone);
     if (!normalized) return null;
-    const row = this.db.prepare('SELECT id FROM projects WHERE customer_phone=? AND stage NOT IN ("COMPLETED","CANCELLED") ORDER BY updated_at DESC LIMIT 1').get(normalized);
+    const row = this.db.prepare("SELECT id FROM projects WHERE customer_phone=? AND stage NOT IN ('COMPLETED','CANCELLED') ORDER BY updated_at DESC LIMIT 1").get(normalized);
     return row ? this.getProject(row.id) : null;
   }
 
   ensureApproval(projectId, approvalType, requestedBy = 'system', amount = null, note = null) {
     if (!Object.values(APPROVAL_TYPES).includes(approvalType)) throw new Error('Unsupported approval type.');
-    const existing = this.db.prepare('SELECT * FROM project_approvals WHERE project_id=? AND approval_type=? AND status IN ("PENDING","APPROVED") ORDER BY requested_at DESC LIMIT 1').get(projectId, approvalType);
+    const existing = this.db.prepare("SELECT * FROM project_approvals WHERE project_id=? AND approval_type=? AND status IN ('PENDING','APPROVED') ORDER BY requested_at DESC LIMIT 1").get(projectId, approvalType);
     if (existing) return existing;
     const approvalId = id('approval');
-    this.db.prepare('INSERT INTO project_approvals(id,project_id,approval_type,status,requested_by,amount,note,requested_at) VALUES(?,?,?,"PENDING",?,?,?,?)')
+    this.db.prepare("INSERT INTO project_approvals(id,project_id,approval_type,status,requested_by,amount,note,requested_at) VALUES(?,?,?,'PENDING',?,?,?,?)")
       .run(approvalId, projectId, approvalType, requestedBy, money(amount), clean(note,1200), now());
     return this.db.prepare('SELECT * FROM project_approvals WHERE id=?').get(approvalId);
   }
@@ -172,7 +172,7 @@ export class ContractorPmoStore {
     if (projectId) { where.push('a.project_id=?'); args.push(projectId); }
     if (status) { where.push('a.status=?'); args.push(String(status).toUpperCase()); }
     if (where.length) sql += ' WHERE ' + where.join(' AND ');
-    sql += ' ORDER BY CASE WHEN a.status="PENDING" THEN 0 ELSE 1 END,a.requested_at DESC LIMIT ?';
+    sql += " ORDER BY CASE WHEN a.status='PENDING' THEN 0 ELSE 1 END,a.requested_at DESC LIMIT ?";
     args.push(Math.max(1, Math.min(500, Number(limit) || 200)));
     return this.db.prepare(sql).all(...args);
   }
@@ -182,7 +182,7 @@ export class ContractorPmoStore {
     const from = fromStage || this.db.prepare('SELECT stage FROM projects WHERE id=?').get(projectId)?.stage;
     if (!from) return { passed: false, required: [], approved: [], missing: ['PROJECT_NOT_FOUND'] };
     const required = requiredApprovalsForTransition(from, toStage);
-    const approved = this.db.prepare('SELECT DISTINCT approval_type FROM project_approvals WHERE project_id=? AND status="APPROVED"').all(projectId).map(x => x.approval_type);
+    const approved = this.db.prepare("SELECT DISTINCT approval_type FROM project_approvals WHERE project_id=? AND status='APPROVED'").all(projectId).map(x => x.approval_type);
     const missing = required.filter(x => !approved.includes(x));
     return { passed: missing.length === 0, required, approved, missing };
   }
@@ -222,7 +222,7 @@ export class ContractorPmoStore {
     const probability = Math.max(1,Math.min(5,Number(input.probability)||3));
     const impact = Math.max(1,Math.min(5,Number(input.impact)||3));
     const riskId = id('risk'), t = now();
-    this.db.prepare('INSERT INTO project_risks(id,project_id,category,probability,impact,score,status,description,mitigation,owner,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,"OPEN",?,?,?,?,?,?)')
+    this.db.prepare("INSERT INTO project_risks(id,project_id,category,probability,impact,score,status,description,mitigation,owner,due_at,created_at,updated_at) VALUES(?,?,?,?,?,?,'OPEN',?,?,?,?,?,?)")
       .run(riskId,projectId,String(input.category||'GENERAL').toUpperCase(),probability,impact,probability*impact,description,clean(input.mitigation,2000),clean(input.owner,120),clean(input.dueAt,40),t,t);
     this.activity(projectId,'RISK_CREATED',actor,{ riskId,score:probability*impact });
     return this.db.prepare('SELECT * FROM project_risks WHERE id=?').get(riskId);
@@ -260,8 +260,8 @@ export class ContractorPmoStore {
         totalProjects: projects.length,
         totalActiveValue: active.reduce((s,p)=>s+(Number(p.estimatedValue)||0),0),
         pendingApprovals: pendingApprovals.length,
-        highRisks: Number(this.db.prepare('SELECT COUNT(*) c FROM project_risks WHERE status="OPEN" AND score>=12').get()?.c||0),
-        blockedTasks: Number(this.db.prepare('SELECT COUNT(*) c FROM project_tasks WHERE status="BLOCKED"').get()?.c||0),
+        highRisks: Number(this.db.prepare("SELECT COUNT(*) c FROM project_risks WHERE status='OPEN' AND score>=12").get()?.c||0),
+        blockedTasks: Number(this.db.prepare("SELECT COUNT(*) c FROM project_tasks WHERE status='BLOCKED'").get()?.c||0),
         overdueProjects: active.filter(p=>p.targetFinishDate&&new Date(p.targetFinishDate+'T23:59:59').getTime()<Date.now()).length
       },
       stageCounts, projects, pendingApprovals: pendingApprovals.slice(0,20)
