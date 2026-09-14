@@ -198,3 +198,27 @@ test('TelegramBridge.sendLeadAlert reports not-configured without throwing', asy
   assert.equal(result.dispatched, false);
   assert.ok(result.error);
 });
+
+test('TelegramBridge falls back to TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID when BUDI_* are unset', () => {
+  const originalBudiToken = process.env.BUDI_TELEGRAM_BOT_TOKEN;
+  const originalBudiChat = process.env.BUDI_TELEGRAM_CHAT_ID;
+  const originalToken = process.env.TELEGRAM_BOT_TOKEN;
+  const originalChat = process.env.TELEGRAM_CHAT_ID;
+  try {
+    delete process.env.BUDI_TELEGRAM_BOT_TOKEN;
+    delete process.env.BUDI_TELEGRAM_CHAT_ID;
+    process.env.TELEGRAM_BOT_TOKEN = 'fallback-token-123';
+    process.env.TELEGRAM_CHAT_ID = 'fallback-chat-456';
+
+    const bridge = new TelegramBridge();
+    assert.equal(bridge.isConfigured(), true);
+    assert.equal(bridge.botToken, 'fallback-token-123');
+    assert.equal(bridge.chatId, 'fallback-chat-456');
+  } finally {
+    if (originalBudiToken !== undefined) process.env.BUDI_TELEGRAM_BOT_TOKEN = originalBudiToken; else delete process.env.BUDI_TELEGRAM_BOT_TOKEN;
+    if (originalBudiChat !== undefined) process.env.BUDI_TELEGRAM_CHAT_ID = originalBudiChat; else delete process.env.BUDI_TELEGRAM_CHAT_ID;
+    if (originalToken !== undefined) process.env.TELEGRAM_BOT_TOKEN = originalToken; else delete process.env.TELEGRAM_BOT_TOKEN;
+    if (originalChat !== undefined) process.env.TELEGRAM_CHAT_ID = originalChat; else delete process.env.TELEGRAM_CHAT_ID;
+  }
+});
+

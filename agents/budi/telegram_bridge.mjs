@@ -18,8 +18,8 @@ export function formatLeadAlert(lead) {
 
 export class TelegramBridge {
   constructor({
-    botToken = process.env.BUDI_TELEGRAM_BOT_TOKEN,
-    chatId = process.env.BUDI_TELEGRAM_CHAT_ID
+    botToken = process.env.BUDI_TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN,
+    chatId = process.env.BUDI_TELEGRAM_CHAT_ID || process.env.TELEGRAM_CHAT_ID
   } = {}) {
     this.botToken = botToken || null;
     this.chatId = chatId || null;

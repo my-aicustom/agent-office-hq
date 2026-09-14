@@ -165,6 +165,30 @@ test('CloudflarePurgeClient forms a purge_everything payload when no urls are gi
   assert.deepEqual(result.payload, { purge_everything: true });
 });
 
+test('CloudflarePurgeClient falls back to CF_API_TOKEN and CF_ZONE_ID when GILANG_* are unset', () => {
+  const origGilangToken = process.env.GILANG_CLOUDFLARE_API_TOKEN;
+  const origGilangZone = process.env.GILANG_CLOUDFLARE_ZONE_ID;
+  const origCfToken = process.env.CF_API_TOKEN;
+  const origCfZone = process.env.CF_ZONE_ID;
+  try {
+    delete process.env.GILANG_CLOUDFLARE_API_TOKEN;
+    delete process.env.GILANG_CLOUDFLARE_ZONE_ID;
+    process.env.CF_API_TOKEN = 'cf-token-abc';
+    process.env.CF_ZONE_ID = 'cf-zone-xyz';
+
+    const client = new CloudflarePurgeClient();
+    assert.equal(client.isConfigured(), true);
+    assert.equal(client.apiToken, 'cf-token-abc');
+    assert.equal(client.zoneId, 'cf-zone-xyz');
+  } finally {
+    if (origGilangToken !== undefined) process.env.GILANG_CLOUDFLARE_API_TOKEN = origGilangToken; else delete process.env.GILANG_CLOUDFLARE_API_TOKEN;
+    if (origGilangZone !== undefined) process.env.GILANG_CLOUDFLARE_ZONE_ID = origGilangZone; else delete process.env.GILANG_CLOUDFLARE_ZONE_ID;
+    if (origCfToken !== undefined) process.env.CF_API_TOKEN = origCfToken; else delete process.env.CF_API_TOKEN;
+    if (origCfZone !== undefined) process.env.CF_ZONE_ID = origCfZone; else delete process.env.CF_ZONE_ID;
+  }
+});
+
+
 test('CloudflarePurgeClient calls the real Cloudflare API when configured and reports success', async (t) => {
   const client = new CloudflarePurgeClient({ apiToken: 'test-token', zoneId: 'zone-123' });
   assert.equal(client.isConfigured(), true);

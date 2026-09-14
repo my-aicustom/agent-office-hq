@@ -11,8 +11,8 @@ const CLOUDFLARE_API_URL = 'https://api.cloudflare.com/client/v4';
  */
 export class CloudflarePurgeClient {
   constructor({
-    apiToken = process.env.GILANG_CLOUDFLARE_API_TOKEN,
-    zoneId = process.env.GILANG_CLOUDFLARE_ZONE_ID
+    apiToken = process.env.GILANG_CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN,
+    zoneId = process.env.GILANG_CLOUDFLARE_ZONE_ID || process.env.CF_ZONE_ID
   } = {}) {
     this.apiToken = apiToken || null;
     this.zoneId = zoneId || null;
