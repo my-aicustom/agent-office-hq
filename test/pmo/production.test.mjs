@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('production job progress follows completed workshop steps',()=>{const p=makePlatform();try{const x=makeProject(p);const j=p.production.createJob(x.id,{title:'Kitchen fabrication'});const a=p.production.addStep(j.id,{name:'Cutting'});p.production.addStep(j.id,{name:'Assembly'});p.production.completeStep(a.id,{actualMinutes:30});assert.equal(p.production.getJob(j.id).progress,50);}finally{p.close();}});

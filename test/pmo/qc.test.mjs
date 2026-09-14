@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('QC cannot release furniture with unchecked required items',()=>{const p=makePlatform();try{const x=makeProject(p);const q=p.quality.createInspection(x.id);assert.throws(()=>p.quality.finalize(q.id),/QC cannot pass/);for(const item of p.quality.items(q.id))p.quality.setItem(item.id,'PASS');assert.equal(p.quality.finalize(q.id).status,'PASS');}finally{p.close();}});

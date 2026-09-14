@@ -1,0 +1,5 @@
+export class OutboxWorker {constructor({outbox,whatsapp,n8n,templates,intervalMs=Number(process.env.PMO_OUTBOX_INTERVAL_MS||5000)}={}){Object.assign(this,{outbox,whatsapp,n8n,templates,intervalMs});this.timer=null;this.running=false;}
+ async tick(){if(this.running)return;this.running=true;try{for(const item of this.outbox.claim(20)){try{if(item.channel==='WHATSAPP'){const text=item.template_key?this.templates.render(item.template_key,item.payload):item.payload.message;await this.whatsapp.sendText({phone:item.destination,message:text,metadata:item.payload.gatewayMetadata||{}});}else if(item.channel==='N8N'){await this.n8n.trigger(item.destination,item.payload,{idempotencyKey:item.idempotency_key});}else throw new Error(`Unsupported outbox channel ${item.channel}`);this.outbox.sent(item.id);}catch(error){this.outbox.fail(item.id,error);}}}finally{this.running=false;}}
+ start(){if(this.timer)return;this.timer=setInterval(()=>this.tick().catch(()=>{}),this.intervalMs);this.timer.unref?.();}
+ stop(){if(this.timer)clearInterval(this.timer);this.timer=null;}
+}

@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('invalid lifecycle transition fails closed',()=>{const p=makePlatform();try{const x=makeProject(p);assert.throws(()=>p.projects.transition(x.id,'PRODUCTION'),/Invalid stage transition/);const q=p.projects.transition(x.id,'QUALIFIED');assert.equal(q.stage,'QUALIFIED');}finally{p.close();}});

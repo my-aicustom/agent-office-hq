@@ -61,6 +61,9 @@
         <button id="tab-warroom" class="tab-btn tab-warroom-highlight" onclick="switchView('warroom')">
           <span>◈</span> AUTONOMOUS OPS CONTROL ROOM
         </button>
+        <button id="tab-pmo" class="tab-btn" onclick="switchView('pmo')">
+          <span>🪚</span> CONTRACTOR PMO
+        </button>
       </div>
 
       <div class="stats-bar">
@@ -550,6 +553,22 @@
 
       </section>
 
+      <section id="view-pmo-section" class="pmo-view hidden">
+        <div class="pmo-hero">
+          <div><span class="ops-eyebrow">AI-NATIVE DELIVERY OS</span><h2>WOOD CONTRACTOR COMMAND CENTER</h2><p>Lead WA → survey → RAB → approval → material → workshop → QC → installation → handover.</p></div>
+          <div class="pmo-actions"><button class="btn-pixel-primary" onclick="window.pmoRefresh?.()">REFRESH PMO</button><button class="btn-pixel-secondary" onclick="window.pmoOpenNewProject?.()">+ PROJECT</button></div>
+        </div>
+        <div id="pmo-kpi-grid" class="pmo-kpi-grid"><div class="pmo-card loading-state">Loading PMO...</div></div>
+        <div class="pmo-grid-2">
+          <div class="pmo-card"><div class="panel-section-header"><div><h3 class="panel-title">ACTIVE PROJECTS</h3><span class="panel-subtitle">Pipeline delivery kontraktor kayu/interior.</span></div></div><div id="pmo-project-list" class="pmo-project-list"></div></div>
+          <div class="pmo-card"><div class="panel-section-header"><div><h3 class="panel-title">DECISION INBOX</h3><span class="panel-subtitle">Approval, blocker, risk, dan WA lead yang perlu tindakan.</span></div></div><div id="pmo-attention-list" class="pmo-attention-list"></div></div>
+        </div>
+        <div class="pmo-grid-2">
+          <div class="pmo-card"><div class="panel-section-header"><div><h3 class="panel-title">WHATSAPP INBOX</h3><span class="panel-subtitle">Lead dan percakapan belum terhubung ke proyek.</span></div></div><div id="pmo-inbox-list" class="pmo-inbox-list"></div></div>
+          <div class="pmo-card"><div class="panel-section-header"><div><h3 class="panel-title">INTEGRATION HEALTH</h3><span class="panel-subtitle">WA Gateway / n8n / PMO database.</span></div></div><div id="pmo-health" class="pmo-health"></div></div>
+        </div>
+      </section>
+
       <!-- Live Telemetry & Event Stream Sidebar -->
       <aside class="sidebar-section">
         <div class="sidebar-header">
@@ -719,5 +738,6 @@
   <script src="office.js"></script>
   <script src="kpi.js"></script>
   <script src="app.js"></script>
+  <script src="pmo-ui.js"></script>
 </body>
 </html>

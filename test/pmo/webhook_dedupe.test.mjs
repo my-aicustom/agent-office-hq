@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform} from './test_utils.mjs';
+test('webhook event ledger detects provider duplicate',()=>{const p=makePlatform();try{const a=p.webhooks.begin({provider:'WHATSAPP',externalId:'e1',payload:{x:1}});const b=p.webhooks.begin({provider:'WHATSAPP',externalId:'e1',payload:{x:2}});assert.equal(a.duplicate,false);assert.equal(b.duplicate,true);assert.equal(a.event.id,b.event.id);}finally{p.close();}});

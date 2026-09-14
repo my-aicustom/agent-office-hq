@@ -15,6 +15,9 @@ import { buildControlRoomSnapshot } from './director/control_room_snapshot.mjs';
 import { TARGET_ENVIRONMENTS } from './agents/gilang/constants.mjs';
 import { IronDirector } from './director/iron_director.mjs';
 import { SecurityStore } from './director/security_store.mjs';
+import { PmoPlatform } from './pmo/platform.mjs';
+import { handlePmoApi } from './pmo/http/router.mjs';
+import { handlePmoPublic } from './pmo/http/public_webhooks.mjs';
 
 export const securityStore = new SecurityStore();
 
@@ -55,8 +58,10 @@ if (missingRuntimeVariables.length > 0) {
 }
 
 export const ironDirector = new IronDirector({ nadiaAgent });
+export const pmoPlatform = new PmoPlatform({ ironDirector });
 if (process.env.NODE_ENV !== 'test') {
   ironDirector.startDaemon();
+  pmoPlatform.worker.start();
 }
 
 const MIME_TYPES = {
@@ -77,7 +82,8 @@ const STATIC_FILES = new Map([
   ['/audio.js', 'audio.js'],
   ['/agents.js', 'agents.js'],
   ['/office.js', 'office.js'],
-  ['/kpi.js', 'kpi.js']
+  ['/kpi.js', 'kpi.js'],
+  ['/pmo-ui.js', 'pmo-ui.js']
 ]);
 
 const LOGIN_WINDOW_MS = 5 * 60 * 1000;
@@ -333,8 +339,8 @@ const server = http.createServer(async (req, res) => {
 
   // Global Security & CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Idempotency-Key, X-WA-Webhook-Secret');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
@@ -342,6 +348,10 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  if (await handlePmoPublic(req, res, { path: reqPath, url: parsedUrl, platform: pmoPlatform })) {
     return;
   }
 
@@ -482,6 +492,10 @@ const server = http.createServer(async (req, res) => {
 
     if (reqPath.startsWith('/api/agents/nadia/')) {
       res.setHeader('Cache-Control', 'no-store');
+    }
+
+    if (await handlePmoApi(req, res, { path: reqPath, url: parsedUrl, platform: pmoPlatform, session })) {
+      return;
     }
 
     if (reqPath === '/api/agents/nadia/status' && req.method === 'GET') {

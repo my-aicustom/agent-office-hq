@@ -1,0 +1,4 @@
+import { buildProjectReport } from '../reports/project_report.mjs';
+export class ReportService {constructor({projects,dashboard,finance,planning,governance,production,messages,db}){Object.assign(this,{projects,dashboard,finance,planning,governance,production,messages});this.db=db.db||db;}
+ project(id){const project=this.projects.get(id);if(!project)return null;return buildProjectReport({project,health:this.dashboard.projectHealth(project.id),finance:this.finance.summary(project.id),milestones:this.planning.listMilestones(project.id),tasks:this.planning.listTasks(project.id),risks:this.db.prepare(`SELECT * FROM risks WHERE project_id=? ORDER BY created_at DESC`).all(project.id),approvals:this.db.prepare(`SELECT * FROM approvals WHERE project_id=? ORDER BY created_at DESC`).all(project.id),production:this.production.listJobs(project.id),messages:this.messages.listProject(project.id,{limit:20})});}
+}

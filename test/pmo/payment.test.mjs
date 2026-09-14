@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('DP payment updates project deposit and finance summary',()=>{const p=makePlatform();try{const x=makeProject(p,{contractValue:50000000});const pay=p.finance.addPayment(x.id,{type:'DP',amount:25000000});p.finance.markPaid(pay.id,{method:'TRANSFER'});assert.equal(p.projects.get(x.id).depositPaid,25000000);assert.equal(p.finance.summary(x.id).outstanding,25000000);}finally{p.close();}});

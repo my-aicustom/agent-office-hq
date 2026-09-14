@@ -130,8 +130,8 @@ jobs:
               -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
               -e OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
               -e SEO_PR_EXECUTOR_ENABLED=true \
-              -e SEO_TARGET_REPOSITORY=git@github.com:heriscaleup/tepatlaser.git \
-              -e SEO_TARGET_REPOSITORY_SLUG=heriscaleup/tepatlaser \
+              -e SEO_TARGET_REPOSITORY=git@github.com:my-aicustom/tepatlaser.git \
+              -e SEO_TARGET_REPOSITORY_SLUG=my-aicustom/tepatlaser \
               -e SEO_TARGET_BASE_BRANCH=main \
               -e SEO_TARGET_CONTENT_DIR=src/content/blog \
               -e SEO_TARGET_WORK_ROOT=/app/data/executor-workspaces \

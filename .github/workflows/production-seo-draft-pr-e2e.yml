@@ -87,13 +87,13 @@ jobs:
           if (!evidence?.draft || !evidence.prUrl || !/^[a-f0-9]{40}$/.test(evidence.commitSha || '')) {
             throw new Error('Task lacks valid Draft PR evidence.');
           }
-          const pr = await requestJson(`https://api.github.com/repos/heriscaleup/tepatlaser/pulls/${evidence.prNumber}`, {
+          const pr = await requestJson(`https://api.github.com/repos/my-aicustom/tepatlaser/pulls/${evidence.prNumber}`, {
             headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-production-e2e' }
           });
           if (!pr.draft || pr.state !== 'open' || pr.head?.sha !== evidence.commitSha || pr.base?.ref !== 'main') {
             throw new Error('GitHub PR state does not match persisted task evidence.');
           }
-          const files = await requestJson(`https://api.github.com/repos/heriscaleup/tepatlaser/pulls/${evidence.prNumber}/files`, {
+          const files = await requestJson(`https://api.github.com/repos/my-aicustom/tepatlaser/pulls/${evidence.prNumber}/files`, {
             headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'agent-office-hq-production-e2e' }
           });
           if (files.length !== 1 || files[0]?.filename !== evidence.targetPath || !/^src\/content\/blog\/[^/]+\.md$/.test(evidence.targetPath)) {

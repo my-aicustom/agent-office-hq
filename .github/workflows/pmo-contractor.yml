@@ -1,0 +1,17 @@
+name: PMO Contractor
+on:
+  pull_request:
+    paths: ['pmo/**','test/pmo/**','pmo-ui.js','server.mjs','index.html','style.css','package.json']
+  push:
+    branches: [main]
+    paths: ['pmo/**','test/pmo/**']
+jobs:
+  pmo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm run test:pmo
+      - run: npm run pmo:smoke
+      - run: git diff --check

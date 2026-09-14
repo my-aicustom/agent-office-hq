@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('task dependencies expose unfinished blockers',()=>{const p=makePlatform();try{const x=makeProject(p);const a=p.planning.addTask(x.id,{title:'Cut plywood'});const b=p.planning.addTask(x.id,{title:'Assembly'});p.planning.addDependency(b.id,a.id);assert.equal(p.planning.blockers(b.id).length,1);p.planning.setTaskStatus(a.id,'DONE');assert.equal(p.planning.blockers(b.id).length,0);}finally{p.close();}});

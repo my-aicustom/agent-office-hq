@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('quotation totals and approval sync contract value',()=>{const p=makePlatform();try{const x=makeProject(p,{contractValue:0});const q=p.quotes.create(x.id,{discount:100000});p.quotes.addItem(q.id,{description:'Kitchen set',qty:1,unitPrice:10000000});const out=p.quotes.approve(q.id);assert.equal(out.grand_total,9900000);assert.equal(p.projects.get(x.id).contractValue,9900000);}finally{p.close();}});

@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('project report combines delivery finance and governance context',()=>{const p=makePlatform();try{const x=makeProject(p,{contractValue:12000000});p.planning.addTask(x.id,{title:'Fabrication'});const r=p.reports.project(x.id);assert.equal(r.project.code,x.code);assert.equal(r.finance.contractValue,12000000);assert.equal(r.planning.totalTasks,1);assert.ok(r.health.score<=100);}finally{p.close();}});

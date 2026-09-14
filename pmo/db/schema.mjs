@@ -1,0 +1,14 @@
+import { schemaMeta } from './schema_meta.mjs';
+import { schemaProjects } from './schema_projects.mjs';
+import { schemaCrm } from './schema_crm.mjs';
+import { schemaPlanning } from './schema_planning.mjs';
+import { schemaSurveys } from './schema_surveys.mjs';
+import { schemaCommercial } from './schema_commercial.mjs';
+import { schemaFinance } from './schema_finance.mjs';
+import { schemaProcurement } from './schema_procurement.mjs';
+import { schemaProduction } from './schema_production.mjs';
+import { schemaQuality } from './schema_quality.mjs';
+import { schemaInstallation } from './schema_installation.mjs';
+import { schemaGovernance } from './schema_governance.mjs';
+import { schemaIntegrations } from './schema_integrations.mjs';
+export const FULL_SCHEMA = [schemaMeta,schemaProjects,schemaCrm,schemaPlanning,schemaSurveys,schemaCommercial,schemaFinance,schemaProcurement,schemaProduction,schemaQuality,schemaInstallation,schemaGovernance,schemaIntegrations].join('\n');

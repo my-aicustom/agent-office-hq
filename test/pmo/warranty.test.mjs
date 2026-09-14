@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('warranty case records resolution after handover',()=>{const p=makePlatform();try{const x=makeProject(p);const w=p.warranty.open(x.id,{title:'Engsel adjustment'});assert.equal(w.status,'OPEN');assert.equal(p.warranty.resolve(w.id,{resolution:'Adjusted hinge'}).status,'RESOLVED');}finally{p.close();}});

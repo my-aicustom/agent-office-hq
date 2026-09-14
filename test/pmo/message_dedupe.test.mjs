@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform} from './test_utils.mjs';
+test('WhatsApp message external id is idempotent',()=>{const p=makePlatform();try{const a=p.messages.record({direction:'INBOUND',phone:'0812',externalId:'wa-1',text:'a'});const b=p.messages.record({direction:'INBOUND',phone:'0812',externalId:'wa-1',text:'duplicate'});assert.equal(a.id,b.id);}finally{p.close();}});

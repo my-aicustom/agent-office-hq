@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('PMO search spans projects tasks and suppliers',()=>{const p=makePlatform();try{const x=makeProject(p,{title:'Kitchen Alam Sutera'});p.planning.addTask(x.id,{title:'Cutting kitchen carcass'});p.procurement.addSupplier({name:'Kayu Jaya'});assert.ok(p.search.search('Kitchen').length>=2);assert.equal(p.search.search('Kayu Jaya')[0].type,'supplier');}finally{p.close();}});

@@ -1,0 +1,9 @@
+import { uid,nowIso,jsonStringify,jsonParse } from '../core/utils.mjs';
+export class OutboxService {constructor(db){this.db=db.db||db;}
+ enqueue({projectId=null,channel,destination,templateKey=null,payload,idempotencyKey=null,availableAt=null}){if(idempotencyKey){const old=this.db.prepare(`SELECT * FROM outbox WHERE idempotency_key=?`).get(idempotencyKey);if(old)return this._map(old);}const id=uid('out'),ts=nowIso();this.db.prepare(`INSERT INTO outbox(id,project_id,channel,destination,template_key,payload_json,status,available_at,idempotency_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id,projectId,channel,destination,templateKey,jsonStringify(payload),'PENDING',availableAt||ts,idempotencyKey,ts);return this.get(id);}
+ claim(limit=20){const ts=nowIso();const rows=this.db.prepare(`SELECT * FROM outbox WHERE status='PENDING' AND available_at<=? ORDER BY created_at LIMIT ?`).all(ts,Math.min(100,Number(limit)||20));for(const r of rows)this.db.prepare(`UPDATE outbox SET status='PROCESSING',locked_at=?,attempt_count=attempt_count+1 WHERE id=? AND status='PENDING'`).run(ts,r.id);return rows.map((r)=>this.get(r.id)).filter((r)=>r.status==='PROCESSING');}
+ sent(id){this.db.prepare(`UPDATE outbox SET status='SENT',sent_at=?,last_error=NULL WHERE id=?`).run(nowIso(),id);return this.get(id);}
+ fail(id,error,{retryInSeconds=60,maxAttempts=5}={}){const row=this.get(id);const terminal=(row?.attempt_count||0)>=maxAttempts;const next=new Date(Date.now()+retryInSeconds*1000).toISOString();this.db.prepare(`UPDATE outbox SET status=?,available_at=?,last_error=?,locked_at=NULL WHERE id=?`).run(terminal?'FAILED':'PENDING',next,String(error?.message||error),id);return this.get(id);}
+ get(id){return this._map(this.db.prepare(`SELECT * FROM outbox WHERE id=?`).get(id));}
+ _map(r){return r?{...r,payload:jsonParse(r.payload_json,{})}:null;}
+}

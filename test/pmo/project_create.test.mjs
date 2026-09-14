@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform} from './test_utils.mjs';
+test('project creation normalizes Indonesian phone and code',()=>{const p=makePlatform();try{const x=p.projects.create({title:'Wardrobe',clientPhone:'0812-3456-7890'});assert.match(x.code,/^PRJ-/);assert.equal(x.clientPhone,'6281234567890');assert.equal(x.stage,'INQUIRY');}finally{p.close();}});

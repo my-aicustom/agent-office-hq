@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('site survey persists measurements and photos',()=>{const p=makePlatform();try{const x=makeProject(p);const s=p.surveys.schedule(x.id,{surveyor:'Andi'});const d=p.surveys.complete(s.id,{measurements:[{wall:3200}],photos:['a.jpg']});assert.equal(d.status,'DONE');assert.equal(d.measurements[0].wall,3200);assert.deepEqual(d.photos,['a.jpg']);}finally{p.close();}});

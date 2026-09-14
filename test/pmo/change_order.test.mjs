@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('approved change order increases contract value',()=>{const p=makePlatform();try{const x=makeProject(p,{contractValue:10000000});const c=p.changeOrders.create(x.id,{title:'Tambah kabinet',amountDelta:2000000});p.changeOrders.approve(c.id);assert.equal(p.projects.get(x.id).contractValue,12000000);}finally{p.close();}});

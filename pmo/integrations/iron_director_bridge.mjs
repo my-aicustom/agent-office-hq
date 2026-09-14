@@ -1,0 +1,3 @@
+export class IronDirectorBridge {constructor({ironDirector,planning,governance}={}){this.ironDirector=ironDirector;this.planning=planning;this.governance=governance;}
+ async dispatchTask(task,{actionType='PMO_TASK_EXECUTE',payload={}}={}){if(!this.ironDirector)throw new Error('IRON_DIRECTOR_UNAVAILABLE');const envelope={taskId:task.id,projectId:task.project_id,title:task.title,description:task.description,actionType,payload,acceptanceCriteria:payload.acceptanceCriteria||[]};if(typeof this.ironDirector.run==='function')return this.ironDirector.run(envelope);if(typeof this.ironDirector.execute==='function')return this.ironDirector.execute(envelope);throw new Error('IRON_DIRECTOR_DISPATCH_METHOD_UNAVAILABLE');}
+}

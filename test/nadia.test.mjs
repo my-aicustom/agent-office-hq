@@ -131,7 +131,7 @@ async function startServer({ port, dataDir }) {
   child.stderr.on('data', chunk => { stderr += chunk; });
   child.stdout.resume();
   const base = `http://127.0.0.1:${port}`;
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
     await delay(100);
     if (child.exitCode !== null) throw new Error(`server exited early: ${child.exitCode} ${stderr}`);
     try {

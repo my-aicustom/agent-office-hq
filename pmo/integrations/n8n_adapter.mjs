@@ -1,0 +1,4 @@
+import { ValidationError } from '../core/errors.mjs';
+export class N8nAdapter {constructor({baseUrl=process.env.N8N_BASE_URL||'',apiKey=process.env.N8N_API_KEY||'',webhookBase=process.env.N8N_WEBHOOK_BASE_URL||'',fetchFn=globalThis.fetch}={}){this.baseUrl=baseUrl.replace(/\/$/,'');this.apiKey=apiKey;this.webhookBase=webhookBase.replace(/\/$/,'');this.fetchFn=fetchFn;}
+ async trigger(path,payload,{idempotencyKey=null}={}){if(!this.webhookBase)throw new ValidationError('N8N_WEBHOOK_BASE_URL is not configured');const res=await this.fetchFn(`${this.webhookBase}/${String(path).replace(/^\//,'')}`,{method:'POST',headers:{'content-type':'application/json',...(this.apiKey?{'x-api-key':this.apiKey}:{}),...(idempotencyKey?{'idempotency-key':idempotencyKey}:{})},body:JSON.stringify(payload)});const text=await res.text();let data;try{data=JSON.parse(text);}catch{data={raw:text};}if(!res.ok)throw new Error(`n8n ${res.status}: ${text.slice(0,300)}`);return data;}
+}

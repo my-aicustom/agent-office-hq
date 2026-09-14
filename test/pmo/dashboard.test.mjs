@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform,makeProject} from './test_utils.mjs';
+test('dashboard aggregates project attention signals',()=>{const p=makePlatform();try{const x=makeProject(p);p.planning.addTask(x.id,{title:'Blocked item',status:'BLOCKED'});p.governance.requestApproval(x.id,{kind:'INTERNAL_ESTIMATE',subject:'RAB'});const d=p.dashboard.snapshot();assert.equal(d.projects.total,1);assert.equal(d.attention.blockedTasks,1);assert.equal(d.attention.pendingApprovals,1);}finally{p.close();}});

@@ -172,19 +172,26 @@ function switchView(viewName) {
   const tabOffice = document.getElementById('tab-office');
   const tabKpi = document.getElementById('tab-kpi');
   const tabWarroom = document.getElementById('tab-warroom');
+  const tabPmo = document.getElementById('tab-pmo');
   const viewOffice = document.getElementById('view-office-section');
   const viewKpi = document.getElementById('view-kpi-section');
   const viewWarroom = document.getElementById('view-warroom-section');
+  const viewPmo = document.getElementById('view-pmo-section');
 
   tabOffice.classList.toggle('active', viewName === 'office');
   tabKpi.classList.toggle('active', viewName === 'kpi');
   if (tabWarroom) tabWarroom.classList.toggle('active', viewName === 'warroom');
+  if (tabPmo) tabPmo.classList.toggle('active', viewName === 'pmo');
 
   viewOffice.classList.toggle('hidden', viewName !== 'office');
   viewKpi.classList.toggle('hidden', viewName !== 'kpi');
   if (viewWarroom) viewWarroom.classList.toggle('hidden', viewName !== 'warroom');
+  if (viewPmo) viewPmo.classList.toggle('hidden', viewName !== 'pmo');
 
-  if (viewName === 'warroom') {
+  if (viewName === 'pmo') {
+    window.pmoRefresh?.();
+    if (window.audioFX && window.audioFX.playBlip) window.audioFX.playBlip(720, 'triangle', 0.10);
+  } else if (viewName === 'warroom') {
     if (window.audioFX && window.audioFX.playBlip) window.audioFX.playBlip(650, 'sawtooth', 0.12);
     refreshWarRoomData();
   } else if (viewName === 'office') {

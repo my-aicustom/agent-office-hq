@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {makePlatform} from './test_utils.mjs';
+test('unlinked WhatsApp inquiry can be promoted into canonical project',()=>{const p=makePlatform();try{const m=p.messages.record({direction:'INBOUND',phone:'08123456789',text:'mau buat lemari custom'});const i=p.inbox.ingestMessage(m,{name:'Pak Ando'});const pr=p.inbox.promote(i.id,{title:'Lemari Pak Ando'});assert.equal(pr.clientPhone,'628123456789');assert.equal(p.inbox.get(i.id).status,'PROMOTED');}finally{p.close();}});

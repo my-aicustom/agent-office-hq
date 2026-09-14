@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {classifyInboxText,extractLeadFacts} from '../../pmo/ai/inbox_classifier.mjs';
+test('contractor inbox classifier detects lead survey and quote intent',()=>{assert.equal(classifyInboxText('Saya mau buat kitchen set custom').classification,'NEW_LEAD');assert.equal(classifyInboxText('bisa survey ukur lokasi?').classification,'SURVEY');assert.equal(classifyInboxText('boleh minta penawaran harga').classification,'QUOTE');assert.equal(extractLeadFacts('minta survey besok').mentionsSurvey,true);});

@@ -1,0 +1,3 @@
+import { PmoPlatform } from '../pmo/platform.mjs';
+const p=new PmoPlatform({dbPath:':memory:'});
+try{const project=p.projects.create({title:'Smoke Project',clientPhone:'081200000000'});const survey=p.surveys.schedule(project.id,{surveyor:'smoke'});p.surveys.complete(survey.id,{measurements:[{width:1000,height:2000}]});const estimate=p.estimates.create(project.id,{markupPercent:20});p.estimates.addItem(estimate.id,{category:'MATERIAL',description:'Plywood',qty:1,unitCost:500000,wastePercent:10});if(p.dashboard.snapshot().projects.total!==1)throw new Error('dashboard smoke failed');console.log('PMO_SMOKE_OK');}finally{p.close();}
